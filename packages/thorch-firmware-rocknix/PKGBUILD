@@ -2,7 +2,7 @@
 
 pkgname=thorch-firmware-rocknix
 pkgver=1
-pkgrel=3
+pkgrel=4
 pkgdesc='Public ROCKNIX SM8550 firmware and runtime artifacts packaged for Thorch'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -28,7 +28,6 @@ EOF
 
   install -d "${pkgdir}/usr/lib/firmware"
   cp -a "${_firmware_dir}/." "${pkgdir}/usr/lib/firmware/"
-  rm -f "${pkgdir}/usr/lib/firmware/qcom/vpu/vpu30_p4.mbn"
 
   if [[ ! -f "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" ]]; then
     cat >&2 <<EOF

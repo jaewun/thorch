@@ -44,9 +44,10 @@ attempt, require manual recovery, or need a full reinstall. Read scripts before
 running them, especially anything that writes block devices.
 
 The internal installer formats selected Linux boot/root partitions. The explicit
-`--create-from-userdata` mode wipes Android `userdata` while creating internal
-Linux partitions. Thorch v1 does not flash or replace ABL, but block-device
-mistakes can still make a device painful to recover.
+`--create-from-userdata` mode shrinks Android `userdata` by deleting and
+recreating it smaller, which wipes the Android instance stored there. Thorch v1
+does not flash or replace ABL, but block-device mistakes can still make a device
+painful to recover.
 
 ## AI Disclosure
 
@@ -194,6 +195,10 @@ validates the boot layout.
 Without device arguments it can auto-detect one existing internal ROCKNIX/Thorch
 target. It only shrinks and wipes Android `userdata` when launched explicitly
 with `--create-from-userdata` and confirmed with `SHRINK USERDATA`.
+
+**Warning:** shrinking Android `userdata` is destructive. It deletes and
+recreates the `userdata` partition, so the existing Android instance, apps,
+settings, and local data on that partition are wiped.
 
 ## Upstream Provenance
 
