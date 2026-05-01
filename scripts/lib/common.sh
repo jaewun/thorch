@@ -78,7 +78,7 @@ verify_alarm_rootfs() {
   [[ -n "${ALARM_ROOTFS_SIG_URL:-}" ]] || \
     die "ALARM_ROOTFS_SIG_URL is required unless ALARM_ROOTFS_SHA256 is set"
 
-  require_cmd gpg
+  require_cmd bsdtar gpg
   curl -fL --retry 3 -o "${sig_file}" "${ALARM_ROOTFS_SIG_URL}"
   [[ -n "${ALARM_ROOTFS_SIGNING_KEYS:-}" ]] || \
     die "ALARM_ROOTFS_SIGNING_KEYS is required unless ALARM_ROOTFS_SHA256 is set"
@@ -86,6 +86,44 @@ verify_alarm_rootfs() {
   gpg_home="$(mktemp -d /tmp/thorch-alarm-gnupg.XXXXXX)"
   status_file="$(mktemp /tmp/thorch-alarm-gpg-status.XXXXXX)"
   chmod 0700 "${gpg_home}"
+
+  cleanup_alarm_gpg() {
+    gpgconf --homedir "${gpg_home}" --kill all >/dev/null 2>&1 || true
+    rm -rf "${gpg_home}" "${status_file}"
+  }
+
+  import_alarm_signing_key() {
+    local key="$1" keyring_pkg timeout_secs
+
+    timeout_secs="${ALARM_ROOTFS_KEY_FETCH_TIMEOUT:-20}"
+    if [[ -n "${ALARM_ROOTFS_KEYRING_URL:-}" ]]; then
+      keyring_pkg="$(mktemp /tmp/thorch-alarm-keyring.XXXXXX.pkg.tar.xz)"
+      if curl -fsSL --retry 2 --max-time "${timeout_secs}" -o "${keyring_pkg}" "${ALARM_ROOTFS_KEYRING_URL}" &&
+          bsdtar -xOf "${keyring_pkg}" usr/share/pacman/keyrings/archlinuxarm.gpg |
+            gpg --homedir "${gpg_home}" --batch --quiet --import - >/dev/null; then
+        rm -f "${keyring_pkg}"
+        return 0
+      fi
+      rm -f "${keyring_pkg}"
+    fi
+
+    [[ -n "${ALARM_ROOTFS_KEYSERVER:-}" ]] || return 1
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "${timeout_secs}" gpg \
+        --homedir "${gpg_home}" \
+        --batch \
+        --keyserver-options "timeout=${timeout_secs}" \
+        --keyserver "${ALARM_ROOTFS_KEYSERVER}" \
+        --recv-keys "${key}"
+    else
+      gpg \
+        --homedir "${gpg_home}" \
+        --batch \
+        --keyserver-options "timeout=${timeout_secs}" \
+        --keyserver "${ALARM_ROOTFS_KEYSERVER}" \
+        --recv-keys "${key}"
+    fi
+  }
 
   keyring=/usr/share/pacman/keyrings/archlinuxarm.gpg
   if [[ -r "${keyring}" ]]; then
@@ -95,25 +133,25 @@ verify_alarm_rootfs() {
   for key in ${ALARM_ROOTFS_SIGNING_KEYS}; do
     key="$(printf '%s' "${key}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
     [[ "${key}" =~ ^[0-9A-F]{40}$ ]] || {
-      rm -rf "${gpg_home}" "${status_file}"
+      cleanup_alarm_gpg
       die "invalid ALARM_ROOTFS_SIGNING_KEYS fingerprint: ${key}"
     }
     if ! gpg --homedir "${gpg_home}" --batch --list-keys "${key}" >/dev/null 2>&1; then
-      if ! gpg --homedir "${gpg_home}" --batch --keyserver "${ALARM_ROOTFS_KEYSERVER}" --recv-keys "${key}"; then
-        rm -rf "${gpg_home}" "${status_file}"
-        die "failed to fetch pinned Arch Linux ARM rootfs signing key ${key} from ${ALARM_ROOTFS_KEYSERVER}"
+      if ! import_alarm_signing_key "${key}"; then
+        cleanup_alarm_gpg
+        die "failed to import pinned Arch Linux ARM rootfs signing key ${key}; set ALARM_ROOTFS_KEYRING_URL or ALARM_ROOTFS_SHA256"
       fi
     fi
     gpg --homedir "${gpg_home}" --batch --with-colons --fingerprint "${key}" |
       awk -F: -v key="${key}" '$1 == "fpr" && $10 == key { found=1 } END { exit(found ? 0 : 1) }' || {
-        rm -rf "${gpg_home}" "${status_file}"
+        cleanup_alarm_gpg
         die "failed to import pinned Arch Linux ARM rootfs signing key: ${key}"
       }
   done
 
   if ! gpg --homedir "${gpg_home}" --batch --status-fd 1 --verify "${sig_file}" "${rootfs_tar}" >"${status_file}" 2>&1; then
     cat "${status_file}" >&2
-    rm -rf "${gpg_home}" "${status_file}"
+    cleanup_alarm_gpg
     return 1
   fi
 
@@ -121,13 +159,13 @@ verify_alarm_rootfs() {
   for key in ${ALARM_ROOTFS_SIGNING_KEYS}; do
     key="$(printf '%s' "${key}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
     if [[ "${signer}" == "${key}" ]]; then
-      rm -rf "${gpg_home}" "${status_file}"
+      cleanup_alarm_gpg
       return 0
     fi
   done
 
   cat "${status_file}" >&2
-  rm -rf "${gpg_home}" "${status_file}"
+  cleanup_alarm_gpg
   return 1
 }
 
