@@ -137,6 +137,22 @@ led_paths_for_color() {
   ((${#matches[@]} == 0)) || printf '%s\n' "${matches[@]}"
 }
 
+multicolor_led_dirs() {
+  local matches=()
+
+  shopt -s nullglob
+  matches=("${led_root}"/rgb:[lr][0-9]*)
+  shopt -u nullglob
+  ((${#matches[@]} == 0)) || printf '%s\n' "${matches[@]}"
+}
+
+has_multicolor_leds() {
+  local dirs=()
+
+  mapfile -t dirs < <(multicolor_led_dirs)
+  ((${#dirs[@]} > 0))
+}
+
 color_count() {
   local color="$1"
   local paths=()
@@ -145,7 +161,7 @@ color_count() {
   printf '%s\n' "${#paths[@]}"
 }
 
-has_complete_leds() {
+has_raw_leds() {
   local red_count green_count blue_count
 
   red_count="$(color_count r)"
@@ -154,9 +170,17 @@ has_complete_leds() {
   ((red_count > 0 && green_count > 0 && blue_count > 0))
 }
 
+has_complete_leds() {
+  has_multicolor_leds || has_raw_leds
+}
+
 require_leds() {
   local missing=()
   local color count
+
+  if has_multicolor_leds; then
+    return 0
+  fi
 
   for color in r g b; do
     count="$(color_count "${color}")"
@@ -203,6 +227,50 @@ write_color_channel() {
   done
 }
 
+write_multicolor_led() {
+  local dir="$1" red="$2" green="$3" blue="$4"
+  local indexes=() values=() index value max scaled_brightness
+
+  read -r -a indexes < "${dir}/multi_index"
+  for index in "${indexes[@]}"; do
+    case "${index}" in
+      red)
+        value="${red}"
+        ;;
+      green)
+        value="${green}"
+        ;;
+      blue)
+        value="${blue}"
+        ;;
+      *)
+        value=0
+        ;;
+    esac
+    values+=("${value}")
+  done
+
+  ((${#values[@]} > 0)) || die "no multicolor channels found for ${dir}"
+  printf '%s\n' "${values[*]}" > "${dir}/multi_intensity" || die "failed to write ${dir}/multi_intensity"
+
+  max="$(max_brightness_for_path "${dir}/brightness")"
+  scaled_brightness=$((brightness * max / 255))
+  printf '%s\n' "${scaled_brightness}" > "${dir}/brightness" || die "failed to write ${dir}/brightness"
+}
+
+write_multicolor_leds() {
+  local red="$1" green="$2" blue="$3"
+  local dirs=() dir
+
+  mapfile -t dirs < <(multicolor_led_dirs)
+  for dir in "${dirs[@]}"; do
+    if [[ -w "${dir}/multi_intensity" && -w "${dir}/brightness" ]]; then
+      printf 'none\n' > "${dir}/trigger" 2>/dev/null || true
+      write_multicolor_led "${dir}" "${red}" "${green}" "${blue}"
+    fi
+  done
+}
+
 apply_rgb() {
   local red="$1" green="$2" blue="$3"
 
@@ -211,9 +279,13 @@ apply_rgb() {
   require_byte "blue" "${blue}"
   require_leds
 
-  write_color_channel r "${red}"
-  write_color_channel g "${green}"
-  write_color_channel b "${blue}"
+  if has_multicolor_leds; then
+    write_multicolor_leds "${red}" "${green}" "${blue}"
+  else
+    write_color_channel r "${red}"
+    write_color_channel g "${green}"
+    write_color_channel b "${blue}"
+  fi
 }
 
 detect_power_supply() {
@@ -298,20 +370,33 @@ status() {
   printf 'static: %s %s %s\n' "${static_r}" "${static_g}" "${static_b}"
   printf 'poll_seconds: %s\n' "${poll_seconds}"
 
-  if has_complete_leds; then
+  if has_multicolor_leds; then
+    printf 'backend: multicolor\n'
+  elif has_raw_leds; then
     printf 'backend: raw-htr3212\n'
   else
     printf 'backend: missing\n'
   fi
 
-  for color in r g b; do
-    count="$(color_count "${color}")"
-    printf '%s_count: %s\n' "${color}" "${count}"
-    mapfile -t paths < <(led_paths_for_color "${color}")
+  if has_multicolor_leds; then
+    mapfile -t paths < <(multicolor_led_dirs)
     for path in "${paths[@]}"; do
-      printf '  %s=%s\n' "${path#${led_root}/}" "$(read_first_line "${path}")"
+      printf '  %s brightness=%s multi_index=%s multi_intensity=%s\n' \
+        "${path#${led_root}/}" \
+        "$(read_first_line "${path}/brightness")" \
+        "$(read_first_line "${path}/multi_index")" \
+        "$(read_first_line "${path}/multi_intensity")"
     done
-  done
+  else
+    for color in r g b; do
+      count="$(color_count "${color}")"
+      printf '%s_count: %s\n' "${color}" "${count}"
+      mapfile -t paths < <(led_paths_for_color "${color}")
+      for path in "${paths[@]}"; do
+        printf '  %s=%s\n' "${path#${led_root}/}" "$(read_first_line "${path}")"
+      done
+    done
+  fi
 
   if supply="$(detect_power_supply)"; then
     capacity="$(read_first_line "${supply}/capacity")"
