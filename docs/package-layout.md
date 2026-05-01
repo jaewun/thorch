@@ -15,7 +15,9 @@ rules, and ALSA UCM snippets.
 Turnip/Freedreno runtime imported with the kernel image: the native aarch64 host
 driver, `libdisplay-info.so.2` compatibility library, ROCKNIX FEX-side Freedreno
 helper, and host Vulkan ICD. The image build removes Arch's stock
-`linux-firmware*` packages and relies on this package for Thor firmware.
+`linux-firmware*` packages and relies on this package for Thor firmware,
+including the Adreno firmware imported from the ROCKNIX `/SYSTEM` kernel
+overlay.
 
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,

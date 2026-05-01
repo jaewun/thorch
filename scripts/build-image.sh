@@ -89,11 +89,19 @@ first_lba=2048
 [[ "${#image_packages[@]}" -gt 0 ]] || die "THORCH_IMAGE_PACKAGES must contain at least one package"
 thorch_user_q="$(printf '%q' "${THORCH_USER}")"
 
+rocknix_kernel_artifacts_ready() {
+  local kernel_dir="${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
+  [[ -f "${kernel_dir}/boot/Image" ]] &&
+    [[ -f "${kernel_dir}/usr/lib/firmware/qcom/a740_sqe.fw" ]] &&
+    [[ -f "${kernel_dir}/usr/lib/firmware/qcom/gmu_gen70200.bin" ]] &&
+    [[ -f "${kernel_dir}/usr/lib/firmware/qcom/sm8550/a740_zap.mbn" ]]
+}
+
 if [[ ! -d "${root}/${THORCH_FIRMWARE_DIR}/qcom/sm8550/ayn/thor" ]]; then
   log "syncing public ROCKNIX SM8550 firmware"
   "${script_dir}/sync-rocknix-sources.sh" --ref "${ROCKNIX_REF}" --with-firmware
 fi
-if [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" ]]; then
+if ! rocknix_kernel_artifacts_ready; then
   log "syncing prebuilt ROCKNIX SM8550 kernel artifacts"
   "${script_dir}/sync-rocknix-kernel.sh"
 fi
@@ -198,6 +206,8 @@ unexpected_firmware="$(run_rootfs "pacman -Qq ${stock_kernel_firmware[*]} 2>/dev
 if [[ -n "${unexpected_firmware}" ]]; then
   die "unexpected generic/GPU firmware packages installed: ${unexpected_firmware//$'\n'/ }"
 fi
+run_rootfs "test -f /usr/lib/firmware/qcom/a740_sqe.fw && test -f /usr/lib/firmware/qcom/gmu_gen70200.bin && test -f /usr/lib/firmware/qcom/sm8550/a740_zap.mbn" || \
+  die "missing ROCKNIX Adreno firmware files"
 
 log "configuring Thorch user and services"
 run_rootfs "for g in wheel adm video input audio storage render; do getent group \$g >/dev/null || groupadd -r \$g; done"

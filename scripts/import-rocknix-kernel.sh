@@ -17,7 +17,10 @@ and root directories.
 Required artifacts:
   Image
   dtb/qcom/qcs8550-ayn-thor.dtb
-  usr/lib/modules/<kernel-release>/
+  usr/lib/modules/<kernel-release>/ or ROCKNIX kernel-overlays/base/lib/modules
+  usr/lib/firmware/qcom/a740_sqe.fw or ROCKNIX kernel-overlays/base/lib/firmware/qcom/a740_sqe.fw
+  usr/lib/firmware/qcom/gmu_gen70200.bin or ROCKNIX kernel-overlays/base/lib/firmware/qcom/gmu_gen70200.bin
+  usr/lib/firmware/qcom/sm8550/a740_zap.mbn or ROCKNIX kernel-overlays/base/lib/firmware/qcom/sm8550/a740_zap.mbn
   usr/lib/libvulkan_freedreno.so
   usr/lib/libdisplay-info.so.0.2.0
   usr/share/fex-emu/libvulkan_freedreno.so
@@ -112,17 +115,63 @@ find_first() {
   find "${base}" "$@" 2>/dev/null | sort | head -n1
 }
 
+find_firmware_root() {
+  local base="$1" candidate fallback firmware complete
+  for candidate in \
+    "${base}/usr/lib/firmware" \
+    "${base}/lib/firmware" \
+    "${base}/usr/lib/kernel-overlays/base/lib/firmware" \
+    "${base}/lib/kernel-overlays/base/lib/firmware" \
+    "${base}/system/usr/lib/kernel-overlays/base/lib/firmware" \
+    "${base}/system/lib/kernel-overlays/base/lib/firmware"; do
+    [[ -d "${candidate}" ]] || continue
+    fallback="${fallback:-${candidate}}"
+    complete=1
+    for firmware in "${required_firmware[@]}"; do
+      if [[ ! -f "${candidate}/${firmware}" ]]; then
+        complete=0
+        break
+      fi
+    done
+    if [[ "${complete}" -eq 1 ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  if [[ -n "${fallback:-}" ]]; then
+    printf '%s\n' "${fallback}"
+    return 0
+  fi
+  return 1
+}
+
+find_modules_root() {
+  local base="$1" candidate
+  for candidate in \
+    "${base}/usr/lib/modules" \
+    "${base}/lib/modules" \
+    "${base}/usr/lib/kernel-overlays/base/lib/modules" \
+    "${base}/lib/kernel-overlays/base/lib/modules" \
+    "${base}/system/usr/lib/kernel-overlays/base/lib/modules" \
+    "${base}/system/lib/kernel-overlays/base/lib/modules"; do
+    if [[ -d "${candidate}" ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 image="$(find_first "${boot_dir}" -type f -name Image)"
 dtb="$(find_first "${boot_dir}" -type f \( -path '*/dtb/qcom/qcs8550-ayn-thor.dtb' -o -path '*/qcom/qcs8550-ayn-thor.dtb' \))"
 kernel_boot="$(find_first "${boot_dir}" -maxdepth 3 -type f -name KERNEL)"
-modules_root="$(find_first "${root_dir}" -type d -path '*/usr/lib/modules')"
-if [[ -z "${modules_root}" ]]; then
-  modules_root="$(find_first "${root_dir}" -type d -path '*/lib/modules')"
-fi
-firmware_root="$(find_first "${root_dir}" -type d -path '*/usr/lib/firmware')"
-if [[ -z "${firmware_root}" ]]; then
-  firmware_root="$(find_first "${root_dir}" -type d -path '*/lib/firmware')"
-fi
+modules_root="$(find_modules_root "${root_dir_abs}" || true)"
+required_firmware=(
+  qcom/a740_sqe.fw
+  qcom/gmu_gen70200.bin
+  qcom/sm8550/a740_zap.mbn
+)
+firmware_root="$(find_firmware_root "${root_dir_abs}" || true)"
 
 find_runtime_path() {
   local rel="$1" candidate
@@ -156,6 +205,10 @@ freedreno_icd="$(find_runtime_icd || true)"
 [[ -n "${image}" && -f "${image}" ]] || die "could not find ROCKNIX Image under ${boot_dir}"
 [[ -n "${dtb}" && -f "${dtb}" ]] || die "could not find qcs8550-ayn-thor.dtb under ${boot_dir}"
 [[ -n "${modules_root}" && -d "${modules_root}" ]] || die "could not find ROCKNIX modules under ${root_dir}"
+[[ -n "${firmware_root}" && -d "${firmware_root}" ]] || die "could not find ROCKNIX firmware under ${root_dir}"
+for firmware in "${required_firmware[@]}"; do
+  [[ -f "${firmware_root}/${firmware}" ]] || die "could not find ROCKNIX firmware ${firmware} under ${root_dir}"
+done
 [[ -n "${freedreno_lib}" && -f "${freedreno_lib}" ]] || die "could not find ROCKNIX libvulkan_freedreno.so under ${root_dir}"
 [[ -n "${display_info_lib}" && -f "${display_info_lib}" ]] || die "could not find ROCKNIX libdisplay-info.so.0.2.0 under ${root_dir}"
 [[ -n "${fex_freedreno_lib}" && -f "${fex_freedreno_lib}" ]] || die "could not find ROCKNIX FEX libvulkan_freedreno.so under ${root_dir}"
@@ -187,7 +240,8 @@ install -Dm644 "${freedreno_icd}" "${dest_abs}/usr/share/vulkan/icd.d/freedreno_
   printf 'SOURCE_IMAGE=%s\n' "${image}"
   printf 'SOURCE_DTB=%s\n' "${dtb}"
   printf 'SOURCE_MODULES=%s\n' "${modules_root}"
-  [[ -n "${firmware_root}" ]] && printf 'SOURCE_FIRMWARE_ROOT=%s\n' "${firmware_root}"
+  printf 'SOURCE_FIRMWARE_ROOT=%s\n' "${firmware_root}"
+  printf 'SOURCE_REQUIRED_FIRMWARE=%s\n' "${required_firmware[*]}"
   printf 'SOURCE_VULKAN_FREEDRENO=%s\n' "${freedreno_lib}"
   printf 'SOURCE_DISPLAY_INFO=%s\n' "${display_info_lib}"
   printf 'SOURCE_FEX_VULKAN_FREEDRENO=%s\n' "${fex_freedreno_lib}"

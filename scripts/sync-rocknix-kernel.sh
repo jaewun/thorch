@@ -409,6 +409,12 @@ normalize_immutable_rocknix_image() {
     cp -a "${work_tree}/system/usr/lib/kernel-overlays/base/lib/firmware/." \
       "${work_tree}/usr/lib/firmware/"
   fi
+  for firmware in \
+    qcom/a740_sqe.fw \
+    qcom/gmu_gen70200.bin \
+    qcom/sm8550/a740_zap.mbn; do
+    [[ -f "${work_tree}/usr/lib/firmware/${firmware}" ]] || die "ROCKNIX SYSTEM did not contain firmware ${firmware}"
+  done
 
   [[ -f "${work_tree}/system/usr/lib/libvulkan_freedreno.so" ]] || die "ROCKNIX SYSTEM did not contain libvulkan_freedreno.so"
   install -Dm755 "${work_tree}/system/usr/lib/libvulkan_freedreno.so" \
@@ -470,6 +476,7 @@ mv -f "${provenance_tmp}" "${provenance}"
   printf 'SOURCE_ROCKNIX_IMAGE_FILE=%s\n' "${downloaded}"
   printf 'SOURCE_ROCKNIX_BOOT_PAYLOAD=/KERNEL\n'
   printf 'SOURCE_ROCKNIX_SYSTEM_PAYLOAD=/SYSTEM\n'
+  printf 'SOURCE_ROCKNIX_FIRMWARE_FILES=/usr/lib/firmware/qcom/a740_sqe.fw /usr/lib/firmware/qcom/gmu_gen70200.bin /usr/lib/firmware/qcom/sm8550/a740_zap.mbn\n'
   printf 'SOURCE_ROCKNIX_RUNTIME_FILES=/usr/lib/libvulkan_freedreno.so /usr/lib/libdisplay-info.so.0.2.0 /usr/share/fex-emu/libvulkan_freedreno.so /usr/share/vulkan/icd.d/freedreno_icd.json\n'
   [[ -z "${image_sha256}" ]] || printf 'SOURCE_ROCKNIX_IMAGE_SHA256=%s\n' "${image_sha256}"
 } >> "${dest_abs}/PROVENANCE"

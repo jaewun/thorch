@@ -90,11 +90,19 @@ for i in "${!packages[@]}"; do
   fi
 done
 
+rocknix_kernel_firmware_ready() {
+  local kernel_dir="${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
+  [[ -f "${kernel_dir}/usr/lib/firmware/qcom/a740_sqe.fw" ]] &&
+    [[ -f "${kernel_dir}/usr/lib/firmware/qcom/gmu_gen70200.bin" ]] &&
+    [[ -f "${kernel_dir}/usr/lib/firmware/qcom/sm8550/a740_zap.mbn" ]]
+}
+
 needs_rocknix_sync=0
 if [[ " ${packages[*]} " == *" linux-thorch "* && ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/boot/Image" ]]; then
   needs_rocknix_sync=1
 fi
-if [[ " ${packages[*]} " == *" thorch-firmware-rocknix "* && ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/libvulkan_freedreno.so" ]]; then
+if [[ " ${packages[*]} " == *" thorch-firmware-rocknix "* ]] &&
+  { [[ ! -f "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/libvulkan_freedreno.so" ]] || ! rocknix_kernel_firmware_ready; }; then
   needs_rocknix_sync=1
 fi
 if [[ " ${packages[*]} " == *" thorch-fex-bin "* && ! -x "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}/usr/bin/FEX" ]]; then
@@ -104,7 +112,7 @@ if [[ "${needs_rocknix_sync}" -eq 1 ]]; then
   log "syncing prebuilt ROCKNIX SM8550 kernel/runtime artifacts"
   "${script_dir}/sync-rocknix-kernel.sh"
 fi
-if [[ " ${packages[*]} " == *" linux-thorch "* ]]; then
+if [[ " ${packages[*]} " == *" linux-thorch "* || " ${packages[*]} " == *" thorch-firmware-rocknix "* ]]; then
   validate_rocknix_kernel_provenance "${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
 fi
 if [[ " ${packages[*]} " == *" thorch-fex-bin "* ]]; then

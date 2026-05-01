@@ -277,15 +277,21 @@ repair_alarm_usrmerge_links() {
 validate_rocknix_kernel_provenance() {
   local kernel_dir="$1"
   local provenance="${kernel_dir}/PROVENANCE"
+  local firmware
 
   if [[ ! -f "${provenance}" ]]; then
     warn "missing ROCKNIX kernel provenance at ${provenance}"
-    return 0
-  fi
-
-  if grep -Eq '(^ROCKNIX_REF=smoke-test-existing-kernel-tree$|^SOURCE_(BOOT|ROOT)_DIR=.*/packages/[^/]+/pkg($|/)|^SOURCE_(IMAGE|DTB|MODULES)=packages/[^/]+/pkg/)' "${provenance}"; then
+  elif grep -Eq '(^ROCKNIX_REF=smoke-test-existing-kernel-tree$|^SOURCE_(BOOT|ROOT)_DIR=.*/packages/[^/]+/pkg($|/)|^SOURCE_(IMAGE|DTB|MODULES)=packages/[^/]+/pkg/)' "${provenance}"; then
     die "ROCKNIX kernel provenance points at a local makepkg/smoke-test output; re-import from a mounted or extracted ROCKNIX image"
   fi
+
+  for firmware in \
+    qcom/a740_sqe.fw \
+    qcom/gmu_gen70200.bin \
+    qcom/sm8550/a740_zap.mbn; do
+    [[ -f "${kernel_dir}/usr/lib/firmware/${firmware}" ]] || \
+      die "ROCKNIX kernel artifacts are missing firmware ${firmware}; re-import from a ROCKNIX image with /SYSTEM"
+  done
 }
 
 validate_rocknix_runtime_provenance() {

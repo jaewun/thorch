@@ -2,7 +2,7 @@
 
 pkgname=thorch-firmware-rocknix
 pkgver=1
-pkgrel=4
+pkgrel=5
 pkgdesc='Public ROCKNIX SM8550 firmware and runtime artifacts packaged for Thorch'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -31,6 +31,21 @@ EOF
   if [[ -d "${_rocknix_kernel_dir}/usr/lib/firmware" ]]; then
     cp -a "${_rocknix_kernel_dir}/usr/lib/firmware/." "${pkgdir}/usr/lib/firmware/"
   fi
+  for firmware in \
+    qcom/a740_sqe.fw \
+    qcom/gmu_gen70200.bin \
+    qcom/sm8550/a740_zap.mbn; do
+    if [[ ! -f "${pkgdir}/usr/lib/firmware/${firmware}" ]]; then
+      cat >&2 <<EOF
+Missing ROCKNIX Adreno firmware:
+  usr/lib/firmware/${firmware}
+
+Re-import kernel artifacts from a ROCKNIX image with /SYSTEM:
+  ./scripts/sync-rocknix-kernel.sh
+EOF
+      exit 1
+    fi
+  done
 
   if [[ ! -f "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" ]]; then
     cat >&2 <<EOF
