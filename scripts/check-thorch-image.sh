@@ -14,7 +14,7 @@ require_cmd() {
   fi
 }
 
-for cmd in sfdisk mdir mtype mcopy file strings grep awk; do
+for cmd in sfdisk mdir mtype mcopy file strings grep awk python3; do
   require_cmd "${cmd}"
 done
 
@@ -30,7 +30,7 @@ trap cleanup EXIT
 validate_image() {
   local image="$1"
   local boot_start sector_size boot_offset boot_ref tmpdir failures
-  local root_listing linuxloader kernel_file_type kernel_strings
+  local root_listing linuxloader kernel_file_type kernel_strings dtb_file
 
   [[ -f "${image}" || -b "${image}" ]] || { echo "image/block device not found: ${image}" >&2; return 1; }
   printf 'validating: %s\n' "${image}"
@@ -87,14 +87,28 @@ validate_image() {
 
   if has_fat_path /KERNEL; then
     mcopy -o -i "${boot_ref}" ::/KERNEL "${tmpdir}/KERNEL" >/dev/null
+    dtb_file="${tmpdir}/qcs8550-ayn-thor.dtb"
+    mcopy -o -i "${boot_ref}" ::/dtb/qcom/qcs8550-ayn-thor.dtb "${dtb_file}" >/dev/null 2>&1 || true
     kernel_file_type="$(file -b "${tmpdir}/KERNEL")"
     kernel_strings="${tmpdir}/KERNEL.strings"
     strings -n 8 "${tmpdir}/KERNEL" > "${kernel_strings}"
 
+    kernel_embeds_dtb() {
+      [[ -f "${dtb_file}" ]] || return 1
+      python3 - "${tmpdir}/KERNEL" "${dtb_file}" <<'PY'
+import pathlib
+import sys
+
+kernel = pathlib.Path(sys.argv[1]).read_bytes()
+dtb = pathlib.Path(sys.argv[2]).read_bytes()
+sys.exit(0 if dtb and kernel.find(dtb) >= 0 else 1)
+PY
+    }
+
     check "KERNEL is an Android boot image" grep -q '^Android bootimg' <<<"${kernel_file_type}"
     check "KERNEL command line uses root UUID" grep -q 'root=UUID=' "${kernel_strings}"
     check "KERNEL command line rotates fbcon right" grep -q 'fbcon=rotate:1' "${kernel_strings}"
-    check "KERNEL embeds the Thor DTB" grep -q 'AYN Thor' "${kernel_strings}"
+    check "KERNEL embeds the Thor DTB" kernel_embeds_dtb
   fi
 
   if [[ "${failures}" -ne 0 ]]; then
