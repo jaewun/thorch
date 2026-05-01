@@ -234,7 +234,7 @@ sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont 
 run_rootfs "mkinitcpio -P"
 run_rootfs "thorch-rebuild-abl-kernel --root-uuid ${root_uuid} --rootfstype ext4"
 run_rootfs "thorch-check-boot"
-systemctl --root "${rootfs_dir}" enable NetworkManager.service sshd.service sddm.service systemd-binfmt.service thorch-usb-gadget.service thorch-usb-network.service thorch-touchscreen-setup.service thorch-f24-escape.service thorch-debug-report.service >/dev/null
+systemctl --root "${rootfs_dir}" enable NetworkManager.service sshd.service sddm.service systemd-binfmt.service thorch-usb-gadget.service thorch-usb-network.service thorch-rgb.service thorch-rgb-battery.service thorch-rgb-poweroff.service thorch-touchscreen-setup.service thorch-f24-escape.service thorch-debug-report.service >/dev/null
 
 log "creating boot filesystem image"
 install -d "${boot_stage}"

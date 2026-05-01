@@ -7,7 +7,8 @@ against the imported kernel.
 
 `thorch-bsp` owns the ABL boot contract, including `LinuxLoader.cfg`,
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
-USB debug gadget, boot diagnostics, gamepad udev rules, and ALSA UCM snippets.
+USB debug gadget, boot diagnostics, Thor joystick RGB control, gamepad udev
+rules, and ALSA UCM snippets.
 
 `thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
 `/usr/lib/firmware`. It also installs the matching ROCKNIX `/SYSTEM`

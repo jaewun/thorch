@@ -1,0 +1,14 @@
+[Unit]
+Description=Update Thorch Thor RGB LEDs from battery status
+After=systemd-udevd.service thorch-rgb.service
+ConditionPathExists=/sys/class/leds
+
+[Service]
+Type=simple
+ExecCondition=/usr/bin/thorch-rgb is-mode battery
+ExecStart=/usr/bin/thorch-rgb battery --loop
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

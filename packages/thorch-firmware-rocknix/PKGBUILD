@@ -28,6 +28,9 @@ EOF
 
   install -d "${pkgdir}/usr/lib/firmware"
   cp -a "${_firmware_dir}/." "${pkgdir}/usr/lib/firmware/"
+  if [[ -d "${_rocknix_kernel_dir}/usr/lib/firmware" ]]; then
+    cp -a "${_rocknix_kernel_dir}/usr/lib/firmware/." "${pkgdir}/usr/lib/firmware/"
+  fi
 
   if [[ ! -f "${_rocknix_kernel_dir}/usr/lib/libvulkan_freedreno.so" ]]; then
     cat >&2 <<EOF

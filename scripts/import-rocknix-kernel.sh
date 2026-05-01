@@ -119,6 +119,10 @@ modules_root="$(find_first "${root_dir}" -type d -path '*/usr/lib/modules')"
 if [[ -z "${modules_root}" ]]; then
   modules_root="$(find_first "${root_dir}" -type d -path '*/lib/modules')"
 fi
+firmware_root="$(find_first "${root_dir}" -type d -path '*/usr/lib/firmware')"
+if [[ -z "${firmware_root}" ]]; then
+  firmware_root="$(find_first "${root_dir}" -type d -path '*/lib/firmware')"
+fi
 
 find_runtime_path() {
   local rel="$1" candidate
@@ -162,6 +166,10 @@ install -d "${dest_abs}/boot/dtb/qcom" "${dest_abs}/usr/lib/modules"
 install -Dm644 "${image}" "${dest_abs}/boot/Image"
 install -Dm644 "${dtb}" "${dest_abs}/boot/dtb/qcom/qcs8550-ayn-thor.dtb"
 rsync -a "${modules_root}/" "${dest_abs}/usr/lib/modules/"
+if [[ -n "${firmware_root}" && -d "${firmware_root}" ]]; then
+  install -d "${dest_abs}/usr/lib/firmware"
+  rsync -a "${firmware_root}/" "${dest_abs}/usr/lib/firmware/"
+fi
 if [[ -n "${kernel_boot}" && -f "${kernel_boot}" ]]; then
   install -Dm644 "${kernel_boot}" "${dest_abs}/boot/KERNEL"
 fi
@@ -179,6 +187,7 @@ install -Dm644 "${freedreno_icd}" "${dest_abs}/usr/share/vulkan/icd.d/freedreno_
   printf 'SOURCE_IMAGE=%s\n' "${image}"
   printf 'SOURCE_DTB=%s\n' "${dtb}"
   printf 'SOURCE_MODULES=%s\n' "${modules_root}"
+  [[ -n "${firmware_root}" ]] && printf 'SOURCE_FIRMWARE_ROOT=%s\n' "${firmware_root}"
   printf 'SOURCE_VULKAN_FREEDRENO=%s\n' "${freedreno_lib}"
   printf 'SOURCE_DISPLAY_INFO=%s\n' "${display_info_lib}"
   printf 'SOURCE_FEX_VULKAN_FREEDRENO=%s\n' "${fex_freedreno_lib}"

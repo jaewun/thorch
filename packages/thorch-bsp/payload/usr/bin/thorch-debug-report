@@ -32,9 +32,12 @@ run_section "NetworkManager devices" nmcli device status
 run_section "wireless phys" iw dev
 run_section "loaded wifi modules" sh -c "lsmod | grep -E 'ath12k|cfg80211|mac80211|qrtr|mhi' || true"
 run_section "firmware files" sh -c "find /usr/lib/firmware/ath12k/WCN7850/hw2.0 /usr/lib/firmware/qca /usr/lib/firmware/qcom/sm8550/ayn/thor -maxdepth 3 -type f 2>/dev/null | sort"
+run_section "thor rgb status" thorch-rgb status
+run_section "thor rgb sysfs" sh -c 'for p in /sys/class/leds/[lr]:[rgb][0-9]*; do [ -e "$p" ] || continue; echo "--- ${p#/sys/class/leds/}"; for f in brightness max_brightness; do [ -r "$p/$f" ] && printf "%s=%s\n" "$f" "$(cat "$p/$f")"; done; done'
+run_section "power supplies" sh -c 'for p in /sys/class/power_supply/*; do [ -d "$p" ] || continue; echo "--- ${p#/sys/class/power_supply/}"; for f in type status capacity charge_now charge_full current_now voltage_now online; do [ -r "$p/$f" ] && printf "%s=%s\n" "$f" "$(cat "$p/$f")"; done; done'
 run_section "touch by-path" sh -c "find /dev/input/by-path -maxdepth 1 -type l -printf '%f -> %l\n' 2>/dev/null | sort"
 run_section "touch udev props" sh -c 'for p in /dev/input/by-path/platform-a90000.i2c-event /dev/input/by-path/platform-98c000.i2c-event; do echo "--- $p"; [ -e "$p" ] && udevadm info -q property -n "$p" | grep -E "^(ID_PATH|ID_INPUT|LIBINPUT_CALIBRATION|WL_OUTPUT|NAME)=" || true; done'
-run_section "kernel wifi/touch/display log" sh -c "dmesg | grep -Ei 'ath12k|wcn|wlan|wifi|firmware|qca|qrtr|mhi|touch|input|i2c|hynitron|ft5|goodix|dsi|panel|drm|sde|dpu' | tail -n 500"
+run_section "kernel wifi/touch/display/rgb log" sh -c "dmesg | grep -Ei 'ath12k|wcn|wlan|wifi|firmware|qca|qrtr|mhi|touch|input|i2c|hynitron|ft5|goodix|dsi|panel|drm|sde|dpu|led|htr3212' | tail -n 500"
 run_section "recent journal" journalctl -b --no-pager -n 500
 
 mv -f "${tmp}" "${out}"

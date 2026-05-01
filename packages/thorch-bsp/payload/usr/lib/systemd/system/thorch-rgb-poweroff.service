@@ -1,0 +1,11 @@
+[Unit]
+Description=Turn off Thorch Thor RGB LEDs during shutdown
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/bin/thorch-rgb poweroff
+
+[Install]
+WantedBy=multi-user.target

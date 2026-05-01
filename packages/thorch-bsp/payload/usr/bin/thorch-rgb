@@ -1,0 +1,446 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  thorch-rgb status
+  thorch-rgb off
+  thorch-rgb set R G B
+  thorch-rgb battery
+  thorch-rgb apply-config
+  thorch-rgb poweroff
+EOF
+}
+
+die() {
+  printf 'thorch-rgb: %s\n' "$*" >&2
+  exit 1
+}
+
+warn() {
+  printf 'thorch-rgb: %s\n' "$*" >&2
+}
+
+config="${THORCH_RGB_CONFIG:-/etc/thorch/rgb.conf}"
+sysfs_root="${THORCH_RGB_SYSFS_ROOT:-/sys}"
+led_root="${THORCH_RGB_LED_ROOT:-${sysfs_root}/class/leds}"
+power_root="${THORCH_RGB_POWER_SUPPLY_ROOT:-${sysfs_root}/class/power_supply}"
+
+mode="battery"
+brightness=255
+static_r=0
+static_g=128
+static_b=255
+poll_seconds=15
+
+is_uint() {
+  [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+require_byte() {
+  local name="$1" value="$2"
+
+  if ! is_uint "${value}" || ((value < 0 || value > 255)); then
+    die "${name} must be an integer from 0 to 255"
+  fi
+}
+
+require_poll_seconds() {
+  local value="$1"
+
+  if ! is_uint "${value}" || ((value < 1 || value > 3600)); then
+    die "THORCH_RGB_POLL_SECONDS must be an integer from 1 to 3600"
+  fi
+}
+
+load_config() {
+  local configured_mode configured_brightness configured_static_r configured_static_g configured_static_b configured_poll_seconds
+
+  configured_mode="${THORCH_RGB_MODE:-battery}"
+  configured_brightness="${THORCH_RGB_BRIGHTNESS:-255}"
+  configured_static_r="${THORCH_RGB_STATIC_R:-0}"
+  configured_static_g="${THORCH_RGB_STATIC_G:-128}"
+  configured_static_b="${THORCH_RGB_STATIC_B:-255}"
+  configured_poll_seconds="${THORCH_RGB_POLL_SECONDS:-15}"
+
+  if [[ -r "${config}" ]]; then
+    # shellcheck source=/dev/null
+    source "${config}"
+    configured_mode="${THORCH_RGB_MODE:-${configured_mode}}"
+    configured_brightness="${THORCH_RGB_BRIGHTNESS:-${configured_brightness}}"
+    configured_static_r="${THORCH_RGB_STATIC_R:-${configured_static_r}}"
+    configured_static_g="${THORCH_RGB_STATIC_G:-${configured_static_g}}"
+    configured_static_b="${THORCH_RGB_STATIC_B:-${configured_static_b}}"
+    configured_poll_seconds="${THORCH_RGB_POLL_SECONDS:-${configured_poll_seconds}}"
+  fi
+
+  case "${configured_mode}" in
+    battery|static|off) ;;
+    *) die "THORCH_RGB_MODE must be battery, static, or off" ;;
+  esac
+
+  require_byte "THORCH_RGB_BRIGHTNESS" "${configured_brightness}"
+  require_byte "THORCH_RGB_STATIC_R" "${configured_static_r}"
+  require_byte "THORCH_RGB_STATIC_G" "${configured_static_g}"
+  require_byte "THORCH_RGB_STATIC_B" "${configured_static_b}"
+  require_poll_seconds "${configured_poll_seconds}"
+
+  mode="${configured_mode}"
+  brightness="${configured_brightness}"
+  static_r="${configured_static_r}"
+  static_g="${configured_static_g}"
+  static_b="${configured_static_b}"
+  poll_seconds="${configured_poll_seconds}"
+}
+
+save_config() {
+  local next_mode="$1" next_r="${2:-${static_r}}" next_g="${3:-${static_g}}" next_b="${4:-${static_b}}" tmp
+
+  case "${next_mode}" in
+    battery|static|off) ;;
+    *) die "mode must be battery, static, or off" ;;
+  esac
+  require_byte "THORCH_RGB_STATIC_R" "${next_r}"
+  require_byte "THORCH_RGB_STATIC_G" "${next_g}"
+  require_byte "THORCH_RGB_STATIC_B" "${next_b}"
+
+  install -d -m 0755 "$(dirname "${config}")"
+  tmp="${config}.tmp.$$"
+  {
+    printf '# Thorch Thor RGB LED configuration.\n'
+    printf '# This file is updated by thorch-rgb when modes are changed.\n'
+    printf 'THORCH_RGB_MODE=%s\n' "${next_mode}"
+    printf 'THORCH_RGB_BRIGHTNESS=%s\n' "${brightness}"
+    printf 'THORCH_RGB_STATIC_R=%s\n' "${next_r}"
+    printf 'THORCH_RGB_STATIC_G=%s\n' "${next_g}"
+    printf 'THORCH_RGB_STATIC_B=%s\n' "${next_b}"
+    printf 'THORCH_RGB_POLL_SECONDS=%s\n' "${poll_seconds}"
+  } > "${tmp}"
+  mv -f "${tmp}" "${config}"
+}
+
+try_systemctl() {
+  [[ "${THORCH_RGB_SKIP_SYSTEMD:-0}" == "1" ]] && return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  [[ -d /run/systemd/system ]] || return 0
+  systemctl "$@" >/dev/null 2>&1 || true
+}
+
+led_paths_for_color() {
+  local color="$1"
+  local matches=()
+
+  shopt -s nullglob
+  matches=("${led_root}"/[lr]:"${color}"[0-9]*/brightness)
+  shopt -u nullglob
+  ((${#matches[@]} == 0)) || printf '%s\n' "${matches[@]}"
+}
+
+color_count() {
+  local color="$1"
+  local paths=()
+
+  mapfile -t paths < <(led_paths_for_color "${color}")
+  printf '%s\n' "${#paths[@]}"
+}
+
+has_complete_leds() {
+  local red_count green_count blue_count
+
+  red_count="$(color_count r)"
+  green_count="$(color_count g)"
+  blue_count="$(color_count b)"
+  ((red_count > 0 && green_count > 0 && blue_count > 0))
+}
+
+require_leds() {
+  local missing=()
+  local color count
+
+  for color in r g b; do
+    count="$(color_count "${color}")"
+    if ((count == 0)); then
+      missing+=("${color}")
+    fi
+  done
+
+  if ((${#missing[@]} > 0)); then
+    die "no complete Thor RGB LED channels found under ${led_root}; missing ${missing[*]}"
+  fi
+}
+
+read_first_line() {
+  local path="$1" value=""
+
+  if [[ -r "${path}" ]]; then
+    IFS= read -r value < "${path}" || true
+  fi
+  printf '%s\n' "${value}"
+}
+
+max_brightness_for_path() {
+  local path="$1" dir max
+
+  dir="${path%/brightness}"
+  max="$(read_first_line "${dir}/max_brightness")"
+  if ! is_uint "${max}" || ((max < 1)); then
+    max=255
+  fi
+  printf '%s\n' "${max}"
+}
+
+write_color_channel() {
+  local color="$1" value="$2"
+  local paths=()
+  local path max scaled
+
+  mapfile -t paths < <(led_paths_for_color "${color}")
+  for path in "${paths[@]}"; do
+    max="$(max_brightness_for_path "${path}")"
+    scaled=$((value * brightness * max / 65025))
+    printf '%s\n' "${scaled}" > "${path}" || die "failed to write ${path}"
+  done
+}
+
+apply_rgb() {
+  local red="$1" green="$2" blue="$3"
+
+  require_byte "red" "${red}"
+  require_byte "green" "${green}"
+  require_byte "blue" "${blue}"
+  require_leds
+
+  write_color_channel r "${red}"
+  write_color_channel g "${green}"
+  write_color_channel b "${blue}"
+}
+
+detect_power_supply() {
+  local name dir
+  local names=(battery qcom-battery BAT0 BAT1)
+
+  for name in "${names[@]}"; do
+    dir="${power_root}/${name}"
+    if [[ -r "${dir}/capacity" ]]; then
+      printf '%s\n' "${dir}"
+      return 0
+    fi
+  done
+
+  shopt -s nullglob
+  for dir in "${power_root}"/*; do
+    if [[ -r "${dir}/capacity" ]]; then
+      shopt -u nullglob
+      printf '%s\n' "${dir}"
+      return 0
+    fi
+  done
+  shopt -u nullglob
+
+  return 1
+}
+
+battery_rgb() {
+  local supply capacity status status_lc
+
+  supply="$(detect_power_supply)" || return 1
+  capacity="$(read_first_line "${supply}/capacity")"
+  status="$(read_first_line "${supply}/status")"
+  status_lc="${status,,}"
+
+  if ! is_uint "${capacity}" || ((capacity > 100)); then
+    return 1
+  fi
+
+  case "${status_lc}" in
+    full)
+      printf '0 153 0\n'
+      ;;
+    charging)
+      if ((capacity >= 95)); then
+        printf '0 153 0\n'
+      else
+        printf '255 128 0\n'
+      fi
+      ;;
+    *)
+      if ((capacity <= 10)); then
+        printf '255 0 0\n'
+      elif ((capacity <= 20)); then
+        printf '204 51 51\n'
+      elif ((capacity <= 30)); then
+        printf '255 96 0\n'
+      elif ((capacity <= 40)); then
+        printf '255 180 0\n'
+      else
+        printf '0 153 0\n'
+      fi
+      ;;
+  esac
+}
+
+apply_battery_once() {
+  local rgb red green blue
+
+  rgb="$(battery_rgb)" || return 1
+  read -r red green blue <<< "${rgb}"
+  apply_rgb "${red}" "${green}" "${blue}"
+}
+
+status() {
+  local color count paths=()
+  local supply capacity supply_status
+
+  printf 'config: %s\n' "${config}"
+  printf 'mode: %s\n' "${mode}"
+  printf 'brightness: %s\n' "${brightness}"
+  printf 'static: %s %s %s\n' "${static_r}" "${static_g}" "${static_b}"
+  printf 'poll_seconds: %s\n' "${poll_seconds}"
+
+  if has_complete_leds; then
+    printf 'backend: raw-htr3212\n'
+  else
+    printf 'backend: missing\n'
+  fi
+
+  for color in r g b; do
+    count="$(color_count "${color}")"
+    printf '%s_count: %s\n' "${color}" "${count}"
+    mapfile -t paths < <(led_paths_for_color "${color}")
+    for path in "${paths[@]}"; do
+      printf '  %s=%s\n' "${path#${led_root}/}" "$(read_first_line "${path}")"
+    done
+  done
+
+  if supply="$(detect_power_supply)"; then
+    capacity="$(read_first_line "${supply}/capacity")"
+    supply_status="$(read_first_line "${supply}/status")"
+    printf 'power_supply: %s capacity=%s status=%s\n' "${supply#${power_root}/}" "${capacity}" "${supply_status}"
+  else
+    printf 'power_supply: missing\n'
+  fi
+}
+
+apply_config() {
+  load_config
+  if ! has_complete_leds; then
+    warn "no complete Thor RGB LED channels found under ${led_root}"
+    return 0
+  fi
+
+  case "${mode}" in
+    off)
+      apply_rgb 0 0 0
+      ;;
+    static)
+      apply_rgb "${static_r}" "${static_g}" "${static_b}"
+      ;;
+    battery)
+      apply_battery_once || warn "could not read battery status from ${power_root}"
+      ;;
+  esac
+}
+
+battery_loop() {
+  load_config
+  if [[ "${mode}" != "battery" ]]; then
+    return 0
+  fi
+  if ! has_complete_leds; then
+    warn "no complete Thor RGB LED channels found under ${led_root}"
+    return 0
+  fi
+  if ! detect_power_supply >/dev/null; then
+    warn "no battery power supply found under ${power_root}"
+    return 0
+  fi
+
+  while true; do
+    load_config
+    [[ "${mode}" == "battery" ]] || return 0
+    apply_battery_once || warn "could not update battery RGB status"
+    sleep "${poll_seconds}"
+  done
+}
+
+cmd="${1:-}"
+case "${cmd}" in
+  status)
+    load_config
+    status
+    ;;
+  off)
+    load_config
+    save_config off
+    try_systemctl stop thorch-rgb-battery.service
+    if has_complete_leds; then
+      apply_rgb 0 0 0
+    else
+      warn "no complete Thor RGB LED channels found under ${led_root}"
+    fi
+    ;;
+  set)
+    [[ "$#" -eq 4 ]] || {
+      usage
+      exit 2
+    }
+    load_config
+    require_byte "red" "$2"
+    require_byte "green" "$3"
+    require_byte "blue" "$4"
+    require_leds
+    save_config static "$2" "$3" "$4"
+    try_systemctl stop thorch-rgb-battery.service
+    apply_rgb "$2" "$3" "$4"
+    ;;
+  battery)
+    if [[ "${2:-}" == "--loop" ]]; then
+      [[ "$#" -eq 2 ]] || {
+        usage
+        exit 2
+      }
+      battery_loop
+      exit 0
+    fi
+    [[ "$#" -eq 1 ]] || {
+      usage
+      exit 2
+    }
+    load_config
+    require_leds
+    detect_power_supply >/dev/null || die "no battery power supply found under ${power_root}"
+    save_config battery
+    apply_battery_once || die "could not read battery status from ${power_root}"
+    try_systemctl restart thorch-rgb-battery.service
+    ;;
+  apply-config)
+    [[ "$#" -eq 1 ]] || {
+      usage
+      exit 2
+    }
+    apply_config
+    ;;
+  is-mode)
+    [[ "$#" -eq 2 ]] || {
+      usage
+      exit 2
+    }
+    load_config
+    [[ "${mode}" == "$2" ]]
+    ;;
+  poweroff)
+    [[ "$#" -eq 1 ]] || {
+      usage
+      exit 2
+    }
+    load_config
+    if has_complete_leds; then
+      apply_rgb 0 0 0
+    fi
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

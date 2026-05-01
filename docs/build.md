@@ -80,6 +80,10 @@ packages, creates a GPT raw image, and generates the ABL `/KERNEL` boot image:
 make build
 ```
 
+The generated `/KERNEL` is not copied through from ROCKNIX unchanged. Thorch
+rebuilds it with `thorch-rebuild-abl-kernel` so the Android boot image embeds
+the Thor DTB and the root UUID for this image.
+
 The image builder assembles FAT and ext4 filesystem images directly and writes
 them into a raw GPT image. It does not mount image partitions or bind-mount host
 API filesystems.
@@ -119,7 +123,8 @@ THORCH_IMAGE_PACKAGES='linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kd
 
 To write an image to SD, use the removable-device writer. It refuses mounted,
 read-only, non-removable, or partition targets and does not mount or unmount
-anything:
+anything. The `make write` target runs `make check` first so a stale or
+incorrect `/KERNEL` is caught before the card is overwritten:
 
 ```bash
 make write DEVICE=/dev/sdX
@@ -130,6 +135,17 @@ With PolicyKit instead of `sudo`:
 ```bash
 pkexec ./scripts/write-image.sh output/thorch-arch-aarch64.img /dev/sdX
 ```
+
+To validate a card after writing, pass the whole SD block device:
+
+```bash
+make check IMAGE=/dev/sdX
+```
+
+If Thor shows `no match found for DTB!`, the bootloader has selected the FAT
+boot partition but rejected `/KERNEL`. Check the SD with `make check
+IMAGE=/dev/sdX`; the `/KERNEL` checks must report that it is an Android boot
+image, uses the image root UUID, and embeds the Thor DTB.
 
 ## Important Environment
 

@@ -67,6 +67,7 @@ the machines are helping loudly, not driving unsupervised.
   stabilized.
 - Plasma Mobile Wayland is optional.
 - USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
+- Thor joystick RGB helper with battery-status, static color, and off modes.
 - ROCKNIX ABL-compatible FAT boot partition.
 - Top-level `/KERNEL`, `/Image`, `/LinuxLoader.cfg`, and Thor DTB layout.
 - Internal installer that formats selected Linux boot/root partitions and never
@@ -132,7 +133,8 @@ make fast
 ```
 
 Write the image to a removable SD card. The writer refuses mounted devices and
-does not mount or unmount anything:
+does not mount or unmount anything. `make write` validates the image first,
+including that `/KERNEL` is an Android boot image with the Thor DTB embedded:
 
 ```bash
 make write DEVICE=/dev/sdX
@@ -142,6 +144,12 @@ Validate an existing image:
 
 ```bash
 make check
+```
+
+You can also validate a written SD card by passing the whole block device:
+
+```bash
+make check IMAGE=/dev/sdX
 ```
 
 The Makefile is a thin wrapper around `scripts/`. Use the scripts directly when
@@ -174,6 +182,18 @@ The SSH password/PIN is the build-time `THORCH_PASSWORD`, defaulting to `1234`.
 Each boot writes
 `/boot/thorch-debug-report.txt` so a failed Wi-Fi/touch test can be inspected by
 moving the SD card back to the build host.
+
+If the device reports `no match found for DTB!`, it is still in the bootloader;
+SSH will not be available. That usually means the top-level `/KERNEL` on the FAT
+boot partition is not the rebuilt Thorch Android boot image. Re-run
+`make check IMAGE=/dev/sdX` against the SD card and rebuild or rewrite the image
+if the `/KERNEL` DTB checks fail.
+
+If an internal Thorch/ROCKNIX install is present, the internal FAT boot
+partition may also be labelled `ROCKNIX`. Some ABL paths find the internal
+`ROCKNIX` volume before the SD card. To force SD recovery, temporarily relabel
+the internal Linux boot partition or move its top-level `KERNEL` aside, then
+boot again with the SD inserted.
 
 ## Internal Install
 

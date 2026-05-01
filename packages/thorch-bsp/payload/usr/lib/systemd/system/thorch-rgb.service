@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply Thorch Thor RGB LED mode
+After=systemd-udevd.service
+ConditionPathExists=/sys/class/leds
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/thorch-rgb apply-config
+
+[Install]
+WantedBy=multi-user.target

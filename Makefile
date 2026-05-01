@@ -22,7 +22,7 @@ help:
 	  '  make packages-userspace           Build local packages except linux-thorch' \
 	  '  make build                        Build output/thorch-arch-aarch64.img' \
 	  '  make fast                         Fast rebuild after one full build' \
-	  '  make check [IMAGE=...]            Validate a raw image' \
+	  '  make check [IMAGE=...]            Validate a raw image or block device' \
 	  '  make write DEVICE=/dev/sdX        Write IMAGE to removable media' \
 	  '  make audit                        Run release/source checks' \
 	  '  make clean                        Remove generated build/output artifacts'
@@ -62,6 +62,7 @@ check:
 
 write:
 	@test -n "$(DEVICE)" || { echo 'DEVICE is required, for example DEVICE=/dev/sdX'; exit 2; }
+	./scripts/check-thorch-image.sh "$(IMAGE)"
 	$(THORCH_SUDO) ./scripts/write-image.sh "$(IMAGE)" "$(DEVICE)"
 
 clean:

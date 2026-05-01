@@ -8,7 +8,7 @@ arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-or-later BSD-3-Clause custom)
 depends=(android-tools bash coreutils dnsmasq dosfstools e2fsprogs file findutils grep gzip iproute2 iw kmod mkinitcpio mtools networkmanager openssh procps-ng rfkill sudo systemd util-linux wireless-regdb)
-backup=(boot/LinuxLoader.cfg)
+backup=(boot/LinuxLoader.cfg etc/thorch/rgb.conf)
 source=()
 sha256sums=()
 
@@ -25,7 +25,9 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-rebuild-abl-kernel"
   chmod 755 "${pkgdir}/usr/bin/thorch-check-boot"
   chmod 755 "${pkgdir}/usr/bin/thorch-debug-report"
+  chmod 755 "${pkgdir}/usr/bin/thorch-rgb"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-gadget"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-network"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-firmware"
+  chmod 755 "${pkgdir}/usr/lib/systemd/system-sleep/thorch-rgb"
 }

@@ -333,14 +333,36 @@ except zlib.error:
     image = kernel[:dtb_at]
     trailer = kernel[dtb_at:]
 
-dtb_at = trailer.find(dtb_magic)
-if dtb_at < 0:
+dtbs = []
+pos = 0
+while True:
+    dtb_at = trailer.find(dtb_magic, pos)
+    if dtb_at < 0:
+        break
+    if len(trailer) < dtb_at + 8:
+        raise SystemExit("appended DTB is truncated")
+    dtb_size = struct.unpack_from(">I", trailer, dtb_at + 4)[0]
+    if dtb_size < 8 or len(trailer) < dtb_at + dtb_size:
+        raise SystemExit("appended DTB is truncated")
+    dtb = trailer[dtb_at:dtb_at + dtb_size]
+    dtbs.append(dtb)
+    pos = dtb_at + dtb_size
+
+if not dtbs:
     raise SystemExit("Android boot kernel payload does not contain an appended DTB")
-dtb = trailer[dtb_at:]
-if len(dtb) < 8:
-    raise SystemExit("appended DTB is truncated")
-dtb_size = struct.unpack_from(">I", dtb, 4)[0]
-dtb = dtb[:dtb_size]
+
+matches = [
+    dtb for dtb in dtbs
+    if b"AYN Thor\x00" in dtb and b"ayn,thor\x00" in dtb
+]
+if not matches:
+    raise SystemExit(
+        "Android boot kernel payload does not contain an AYN Thor DTB; "
+        f"found {len(dtbs)} DTB(s)"
+    )
+if len(matches) > 1:
+    raise SystemExit("Android boot kernel payload contains multiple AYN Thor DTBs")
+dtb = matches[0]
 
 image_out.parent.mkdir(parents=True, exist_ok=True)
 dtb_out.parent.mkdir(parents=True, exist_ok=True)
@@ -364,6 +386,9 @@ normalize_immutable_rocknix_image() {
   unsquashfs -no-progress -f -d "${work_tree}/system" \
     "${boot_dir}/SYSTEM" \
     usr/lib/kernel-overlays/base/lib/modules \
+    usr/lib/kernel-overlays/base/lib/firmware/qcom/a740_sqe.fw \
+    usr/lib/kernel-overlays/base/lib/firmware/qcom/gmu_gen70200.bin \
+    usr/lib/kernel-overlays/base/lib/firmware/qcom/sm8550/a740_zap.mbn \
     usr/lib/libvulkan_freedreno.so \
     usr/lib/libdisplay-info.so.0.2.0 \
     usr/lib/libdisplay-info.so.2 \
@@ -379,6 +404,11 @@ normalize_immutable_rocknix_image() {
   [[ -d "${modules_src}" ]] || die "ROCKNIX SYSTEM did not contain kernel modules"
   install -d "${work_tree}/usr/lib"
   mv "${modules_src}" "${work_tree}/usr/lib/modules"
+  if [[ -d "${work_tree}/system/usr/lib/kernel-overlays/base/lib/firmware" ]]; then
+    install -d "${work_tree}/usr/lib/firmware"
+    cp -a "${work_tree}/system/usr/lib/kernel-overlays/base/lib/firmware/." \
+      "${work_tree}/usr/lib/firmware/"
+  fi
 
   [[ -f "${work_tree}/system/usr/lib/libvulkan_freedreno.so" ]] || die "ROCKNIX SYSTEM did not contain libvulkan_freedreno.so"
   install -Dm755 "${work_tree}/system/usr/lib/libvulkan_freedreno.so" \
