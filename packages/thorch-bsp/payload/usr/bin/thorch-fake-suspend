@@ -61,11 +61,16 @@ restore_backlights() {
   [[ -r "${state_dir}/backlights" ]] || return 0
   while IFS='|' read -r dev brightness blp; do
     [[ -d "${dev}" ]] || continue
-    if [[ -n "${blp}" && -w "${dev}/bl_power" ]]; then
-      printf '%s\n' "${blp}" > "${dev}/bl_power" 2>/dev/null || true
+    if [[ -w "${dev}/bl_power" ]]; then
+      # Resume should always light the panels, even if a previous run captured
+      # a stale/off backlight power value.
+      printf '0\n' > "${dev}/bl_power" 2>/dev/null || true
     fi
     if [[ -n "${brightness}" && -w "${dev}/brightness" ]]; then
       printf '%s\n' "${brightness}" > "${dev}/brightness" 2>/dev/null || true
+    fi
+    if [[ -w "${dev}/bl_power" ]]; then
+      printf '0\n' > "${dev}/bl_power" 2>/dev/null || true
     fi
   done < "${state_dir}/backlights"
 }
@@ -98,6 +103,23 @@ save_governors_and_powersave() {
       printf 'powersave\n' > "${gov}" 2>/dev/null || true
     fi
   done
+}
+
+disable_rgb() {
+  command -v thorch-rgb >/dev/null 2>&1 || return 0
+  if systemctl is-active --quiet thorch-rgb-battery.service 2>/dev/null; then
+    printf '1\n' > "${state_dir}/rgb-battery-service-active"
+    systemctl stop thorch-rgb-battery.service >/dev/null 2>&1 || true
+  fi
+  thorch-rgb poweroff >/dev/null 2>&1 || true
+}
+
+restore_rgb() {
+  command -v thorch-rgb >/dev/null 2>&1 || return 0
+  thorch-rgb apply-config >/dev/null 2>&1 || true
+  if [[ -e "${state_dir}/rgb-battery-service-active" ]]; then
+    systemctl restart thorch-rgb-battery.service >/dev/null 2>&1 || true
+  fi
 }
 
 restore_governors() {
@@ -170,7 +192,10 @@ schedule_shutdown() {
 cancel_shutdown() {
   local pid
   pid="$(cat "${state_dir}/shutdown-pid" 2>/dev/null || true)"
-  [[ -n "${pid}" ]] && kill "${pid}" 2>/dev/null || true
+  if [[ -n "${pid}" ]]; then
+    pkill -P "${pid}" 2>/dev/null || true
+    kill "${pid}" 2>/dev/null || true
+  fi
 }
 
 suspend_fake() {
@@ -182,6 +207,7 @@ suspend_fake() {
   log "entering fake suspend"
   save_backlights_and_blank
   mute_audio
+  disable_rgb
   save_governors_and_powersave
   park_cores
   block_input
@@ -198,6 +224,7 @@ resume_fake() {
   restore_cores
   restore_governors
   restore_audio
+  restore_rgb
   restore_backlights
   rm -rf "${state_dir}"
 }
