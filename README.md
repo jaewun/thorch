@@ -61,8 +61,8 @@ the machines are helping loudly, not driving unsupervised.
 
 - Arch Linux ARM aarch64 root filesystem.
 - Local packages for the ROCKNIX kernel, firmware/runtime artifacts, board
-  support, KDE defaults, internal install, FEX runtime, and Steam/gaming setup
-  launcher.
+  support, KDE defaults, internal install, FEX runtime, patched Gamescope, and
+  Steam/gaming setup launcher.
 - Plasma Desktop Wayland as the default session while Thor touch is being
   stabilized.
 - Plasma Mobile Wayland is optional.
@@ -125,8 +125,11 @@ signature. Alternatively set `ALARM_ROOTFS_SHA256` to a pinned tarball hash for
 hermetic builds.
 
 For package/default/service iteration after one full build, use the fast path.
-It rebuilds local Thorch packages, refreshes the cached rootfs, regenerates boot
-artifacts, and reassembles the image without reinstalling Arch/KDE:
+It rebuilds local Thorch userspace packages, refreshes the cached rootfs,
+regenerates boot artifacts, and reassembles the image without reinstalling
+Arch/KDE. The fast path skips `linux-thorch` by default; run
+`scripts/build-image-fast.sh --with-kernel` directly when kernel package changes
+also need to be rebuilt:
 
 ```bash
 make fast
@@ -157,7 +160,7 @@ you need non-default options.
 
 The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
-thorch-installer thorch-fex-bin thorch-gaming-installers`. Override
+thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
 After first boot from a larger SD card, use the `Expand SD Root` desktop icon to
