@@ -15,6 +15,7 @@ license=(MIT)
 depends=(
   dbus
   gcc-libs
+  glfw
   glibc
   libx11
   libxcb

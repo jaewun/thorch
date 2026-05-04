@@ -4,6 +4,7 @@ dbus
 fmt
 gcc-libs
 git
+glfw
 glibc
 glslang
 libx11
