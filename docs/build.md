@@ -107,17 +107,18 @@ pkexec ./scripts/build-image.sh
 pkexec ./scripts/sync-rocknix-kernel.sh
 ```
 
-After one full image build, userspace package/default/service changes should use
-the fast rebuild path:
+For userspace package/default/service changes, use the fast rebuild path:
 
 ```bash
 make fast
 ```
 
-This wrapper rebuilds local Thorch packages with `--skip-kernel`, reinstalls them
-into `build/image-rootfs`, regenerates initramfs and `/boot/KERNEL`, and
-reassembles `output/thorch-arch-aarch64.img`. If imported ROCKNIX kernel
-artifacts changed, run `scripts/build-image-fast.sh --with-kernel`.
+This wrapper rebuilds only missing or stale local Thorch packages, refreshes
+`build/image-rootfs` when it exists, regenerates initramfs and `/boot/KERNEL`,
+and reassembles `output/thorch-arch-aarch64.img`. If `build/image-rootfs` does
+not exist yet, it is created from the local package repo after the package
+refresh. If imported ROCKNIX kernel artifacts changed, run
+`scripts/build-image-fast.sh --with-kernel`.
 
 The default image package set is:
 

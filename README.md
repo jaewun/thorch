@@ -145,10 +145,12 @@ ARM signing key into a temporary GPG keyring if needed, and verifies the
 signature. Alternatively set `ALARM_ROOTFS_SHA256` to a pinned tarball hash for
 hermetic builds.
 
-For package/default/service iteration after one full build, use the fast path.
-It rebuilds local Thorch userspace packages, refreshes the cached rootfs,
-regenerates boot artifacts, and reassembles the image without reinstalling
-Arch/KDE. The fast path skips `linux-thorch` by default; run
+For package/default/service iteration, use the fast path. It rebuilds only
+missing or stale local Thorch packages, refreshes the cached rootfs when one
+exists, regenerates boot artifacts, and reassembles the image. If
+`build/image-rootfs` does not exist yet, it is created from the local package
+repo after the package refresh. The fast path skips rebuilding `linux-thorch`
+by default when a kernel package already exists; run
 `scripts/build-image-fast.sh --with-kernel` directly when kernel package changes
 also need to be rebuilt:
 
