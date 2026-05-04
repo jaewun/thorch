@@ -4,6 +4,7 @@ pkgname=thorch-mangohud
 pkgver=0.8.3_rocknix
 pkgrel=1
 _commit=d7654ebcefb3bdb106d581c937417aa2007eaeeb
+_vulkan_headers_ver=1.3.283
 pkgdesc='MangoHud with ROCKNIX SM8550 GPU support patch and config'
 arch=(aarch64)
 url='https://github.com/flightlessmango/MangoHud'
@@ -32,8 +33,12 @@ provides=(mangohud)
 conflicts=(mangohud)
 source=(
   "https://github.com/flightlessmango/MangoHud/archive/${_commit}.tar.gz"
+  "vulkan-headers-${_vulkan_headers_ver}.tar.gz::https://github.com/KhronosGroup/Vulkan-Headers/archive/v${_vulkan_headers_ver}.tar.gz"
+  "vulkan-headers-${_vulkan_headers_ver}-1-wrap.zip::https://wrapdb.mesonbuild.com/v2/vulkan-headers_${_vulkan_headers_ver}-1/get_patch"
 )
 b2sums=(
+  'SKIP'
+  'SKIP'
   'SKIP'
 )
 backup=(etc/MangoHud.conf)
@@ -43,6 +48,7 @@ prepare() {
   local rocknix_patch="${THORCH_ROCKNIX_DIR:?THORCH_ROCKNIX_DIR is required}/packages/apps/mangohud/patches/SM8550/0001-SM8550-GPU.patch"
   [[ -f "${rocknix_patch}" ]] || { printf 'missing ROCKNIX MangoHud patch: %s\n' "${rocknix_patch}" >&2; exit 1; }
   patch -Np1 -i "${rocknix_patch}"
+  ln -s "${srcdir}/Vulkan-Headers-${_vulkan_headers_ver}" subprojects/
 }
 
 build() {

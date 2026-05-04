@@ -6,8 +6,6 @@ gcc-libs
 git
 glibc
 glslang
-imgui
-implot
 libx11
 libxcb
 libxkbcommon
