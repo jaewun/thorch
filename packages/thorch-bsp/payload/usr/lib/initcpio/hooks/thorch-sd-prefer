@@ -1,0 +1,111 @@
+#!/usr/bin/ash
+
+_thorch_sd_prefer_disabled() {
+    local value
+
+    value="$(getarg thorch.sdprefer)"
+    [ -n "$value" ] || value="$(getarg thorch_sdprefer)"
+
+    case "$value" in
+        0|false|False|FALSE|no|No|NO|off|Off|OFF|disabled|Disabled|DISABLED)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+_thorch_sd_wait_seconds() {
+    local value
+
+    value="$(getarg thorch.sdwait)"
+    [ -n "$value" ] || value="$(getarg thorch_sdwait)"
+
+    case "$value" in
+        ''|*[!0-9]*)
+            printf '2'
+            ;;
+        *)
+            printf '%s' "$value"
+            ;;
+    esac
+}
+
+_thorch_partition_count() {
+    local disk="$1" part count=0
+
+    for part in "/sys/block/${disk}/${disk}"p[0-9]*; do
+        [ -e "$part" ] || continue
+        count=$((count + 1))
+    done
+
+    printf '%s' "$count"
+}
+
+_thorch_find_sd_root() {
+    local sysdisk disk syspart partdev fstype label bootdev rootdev
+
+    for sysdisk in /sys/block/mmcblk[0-9]*; do
+        [ -d "$sysdisk" ] || continue
+        disk="${sysdisk##*/}"
+
+        # Thor can report the external SD slot as non-removable, so use the
+        # Thorch SD image shape instead of /sys/class/block/*/removable.
+        [ "$(_thorch_partition_count "$disk")" = "2" ] || continue
+
+        bootdev=
+        rootdev=
+        for syspart in "${sysdisk}/${disk}"p[0-9]*; do
+            [ -e "$syspart" ] || continue
+            partdev="/dev/${syspart##*/}"
+            [ -b "$partdev" ] || continue
+
+            fstype="$(blkid -s TYPE -o value "$partdev" 2>/dev/null)"
+            label="$(blkid -s LABEL -o value "$partdev" 2>/dev/null)"
+
+            if [ "$fstype" = "vfat" ] && [ "$label" = "ROCKNIX" ]; then
+                bootdev="$partdev"
+            elif [ "$fstype" = "ext4" ] && [ "$label" = "THORCH_ROOT" ]; then
+                rootdev="$partdev"
+            fi
+        done
+
+        [ -n "$bootdev" ] && [ -n "$rootdev" ] || continue
+        printf '%s\n' "$rootdev"
+        return 0
+    done
+
+    return 1
+}
+
+run_hook() {
+    local wait waited=0 sdroot
+
+    _thorch_sd_prefer_disabled && return 0
+
+    wait="$(_thorch_sd_wait_seconds)"
+    while :; do
+        if sdroot="$(_thorch_find_sd_root)"; then
+            msg ":: Thorch SD root detected at $sdroot; preferring it over the boot image root"
+            root="$sdroot"
+            rootfstype=ext4
+            export root rootfstype
+
+            # fsck_root re-reads root through getarg(), so append a later root
+            # entry to mkinitcpio's command-line cache as well.
+            if [ -w /tmp/cmdline ]; then
+                {
+                    printf 'root=%s\n' "$root"
+                    printf 'rootfstype=%s\n' "$rootfstype"
+                } >> /tmp/cmdline
+            fi
+            return 0
+        fi
+
+        [ "$waited" -ge "$wait" ] && break
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    return 0
+}

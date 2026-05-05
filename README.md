@@ -226,11 +226,17 @@ boot partition is not the rebuilt Thorch Android boot image. Re-run
 `make check IMAGE=/dev/sdX` against the SD card and rebuild or rewrite the image
 if the `/KERNEL` DTB check fails.
 
-If an internal Thorch/ROCKNIX install is present, the internal FAT boot
-partition may also be labelled `ROCKNIX`. Some ABL paths find the internal
-`ROCKNIX` volume before the SD card. To force SD recovery, temporarily relabel
-the internal Linux boot partition or move its top-level `KERNEL` aside, then
-boot again with the SD inserted.
+Thorch keeps the FAT boot filesystem labelled `ROCKNIX` for compatibility with
+the imported ROCKNIX boot image conventions, but the current evidence does not
+prove that Thor ABL chooses Linux media by that filesystem label. The practical
+boot contract is a FAT/ESP-style partition with a top-level `/KERNEL` Android
+boot image.
+
+If an internal Thorch install is present and ABL loads the internal `/KERNEL`
+before the SD card's `/KERNEL`, Thorch's initramfs now prefers an inserted
+Thorch SD root automatically. It detects the expected two-partition SD layout:
+`ROCKNIX` FAT boot plus `THORCH_ROOT` ext4 root on the same `mmcblk` card. Pass
+`thorch.sdprefer=0` on the kernel command line to disable this behavior.
 
 ## Internal Install
 

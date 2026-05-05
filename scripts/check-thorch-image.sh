@@ -72,7 +72,7 @@ validate_image() {
   }
 
   root_listing="$(mdir -i "${boot_ref}" ::/)"
-  check "boot partition is labelled ROCKNIX" grep -q 'is ROCKNIX' <<<"${root_listing}"
+  check "boot partition keeps ROCKNIX compatibility label" grep -q 'is ROCKNIX' <<<"${root_listing}"
   check "Android boot image /KERNEL exists at FAT root" has_fat_path /KERNEL
 
   if has_fat_path /KERNEL; then

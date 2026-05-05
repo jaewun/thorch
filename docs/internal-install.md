@@ -53,16 +53,19 @@ path.
 
 ## SD Recovery After Internal Install
 
-The internal Linux boot partition is formatted with the ROCKNIX-compatible label
-`ROCKNIX`. That is required for the ABL Linux path, but it means an internal
-install and an inserted SD card can both expose a `ROCKNIX` FAT partition.
+The internal Linux boot filesystem is formatted with the ROCKNIX-compatible
+label `ROCKNIX` so the layout stays close to the imported ROCKNIX boot image
+conventions. Current evidence does not prove that Thor ABL selects Linux media
+by that filesystem label; the practical boot contract is a FAT/ESP-style
+partition with a top-level `/KERNEL` Android boot image.
 
-On some devices ABL finds the internal `ROCKNIX` partition first, so the device
-continues booting internal storage even with an SD inserted. To force SD
-recovery, temporarily relabel the internal Linux boot partition or move the
-internal top-level `KERNEL` file aside, then boot again with the SD inserted.
-The installed system mounts `/boot` by UUID, so a temporary label change does
-not by itself change `/etc/fstab`.
+On some devices ABL may still load the internal `/KERNEL` before the SD card's
+`/KERNEL`. Thorch handles that in the initramfs: when `thorch-sd-prefer` finds
+the expected two-partition Thorch SD layout, it switches the root filesystem to
+the SD card before fsck and mount. The layout check requires a `ROCKNIX` FAT
+boot partition and a `THORCH_ROOT` ext4 root partition on the same `mmcblk`
+card. Pass `thorch.sdprefer=0` on the kernel command line to disable the
+preference, or `thorch.sdwait=<seconds>` to change the short detection wait.
 
 If the screen says `no match found for DTB!`, the SD or internal FAT partition
 has been selected but its top-level `/KERNEL` is wrong for this Thor boot path.

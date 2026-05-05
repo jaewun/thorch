@@ -240,7 +240,7 @@ cat > "${rootfs_dir}/etc/fstab" <<EOF
 UUID=${root_uuid} / ext4 rw,relatime 0 1
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
 EOF
-sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont block thorch-firmware filesystems fsck)/' \
+sed -i 's/^#\?HOOKS=.*/HOOKS=(base udev modconf kms keyboard keymap consolefont block thorch-firmware thorch-sd-prefer filesystems fsck)/' \
   "${rootfs_dir}/etc/mkinitcpio.conf"
 
 rocknix_kernver="$(find "${root}/${THORCH_ROCKNIX_KERNEL_DIR}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | head -n1 || true)"

@@ -176,6 +176,15 @@ Item {
             value: sliderRow.currentValue
             onMoved: sliderRow.movedValue(value)
             onPressedChanged: sliderRow.pressedChangedValue(pressed)
+
+            // HACK: Plasma's slider can miss the initial bound value if it is
+            // set while the drawer is still being created.
+            Timer {
+                interval: 0
+                running: true
+                repeat: false
+                onTriggered: slider.value = Qt.binding(() => sliderRow.currentValue)
+            }
         }
 
         PC3.Label {

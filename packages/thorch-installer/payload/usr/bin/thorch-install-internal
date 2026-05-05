@@ -349,7 +349,7 @@ cleanup_target_mounts() {
   local mp
   for ((i=${#mounted_targets[@]}-1; i>=0; i--)); do
     mp="${mounted_targets[$i]}"
-    if findmnt -rn --target "${mp}" >/dev/null 2>&1; then
+    if findmnt -rn --mountpoint "${mp}" >/dev/null 2>&1; then
       umount "${mp}" 2>/dev/null || true
     fi
   done
@@ -364,7 +364,7 @@ mount_target() {
 require_target_clear() {
   local mp
   for mp in "${target}/boot" "${target}"; do
-    if findmnt -rn --target "${mp}" >/dev/null 2>&1; then
+    if findmnt -rn --mountpoint "${mp}" >/dev/null 2>&1; then
       fail "target mountpoint is already in use: ${mp}"
     fi
   done
@@ -449,6 +449,7 @@ backup_existing_boot "${boot_device}"
 require_target_clear
 prepare_target_dir
 
+echo ":: thorch-install phase=format"
 mkfs.vfat -F 32 -n ROCKNIX "${boot_device}"
 mkfs.ext4 -F -L THORCH_ROOT "${root_device}"
 
@@ -458,7 +459,14 @@ mount_target "${root_device}" "${target}"
 mkdir -p "${target}/boot"
 mount_target "${boot_device}" "${target}/boot"
 
+rsync_progress_args=()
+if [[ "${THORCH_INSTALL_PROGRESS:-0}" == "1" ]]; then
+  rsync_progress_args=(--info=progress2,name0)
+fi
+
+echo ":: thorch-install phase=copy-root"
 rsync -aAXH --numeric-ids \
+  "${rsync_progress_args[@]}" \
   --exclude=/dev/* \
   --exclude=/proc/* \
   --exclude=/sys/* \
@@ -472,7 +480,8 @@ rsync -aAXH --numeric-ids \
 
 mkdir -p "${target}"/{dev,proc,sys,run,tmp,mnt,media}
 chmod 1777 "${target}/tmp"
-rsync -a /boot/ "${target}/boot/"
+echo ":: thorch-install phase=copy-boot"
+rsync -a "${rsync_progress_args[@]}" /boot/ "${target}/boot/"
 
 root_uuid="$(blkid -s UUID -o value "${root_device}")"
 boot_uuid="$(blkid -s UUID -o value "${boot_device}")"
@@ -482,10 +491,19 @@ UUID=${root_uuid} / ext4 rw,relatime 0 1
 UUID=${boot_uuid} /boot vfat rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro 0 2
 EOF
 
+if [[ -f "${target}/usr/lib/initcpio/install/thorch-sd-prefer" ]] &&
+  ! grep -Eq '^HOOKS=.*(^|[[:space:](])thorch-sd-prefer([[:space:])]|$)' "${target}/etc/mkinitcpio.conf"; then
+  sed -i 's/\bthorch-firmware\b/thorch-firmware thorch-sd-prefer/' "${target}/etc/mkinitcpio.conf"
+fi
+
+echo ":: thorch-install phase=mkinitcpio"
 arch-chroot "${target}" mkinitcpio -P
+echo ":: thorch-install phase=rebuild-boot"
 thorch-rebuild-abl-kernel --boot-dir "${target}/boot" --root-uuid "${root_uuid}" --rootfstype ext4
+echo ":: thorch-install phase=check-boot"
 thorch-check-boot --boot-dir "${target}/boot"
 
+echo ":: thorch-install phase=sync"
 sync
 cleanup_target_mounts
 trap - EXIT
