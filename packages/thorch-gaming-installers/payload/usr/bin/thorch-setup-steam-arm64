@@ -134,6 +134,30 @@ repair_proton_beta_runtime_links() {
   done
 }
 
+repair_steam_arm64_runtime_links() {
+  local dst lib runtime_lib_dir target
+  # ROCKNIX has real GTK2 in the base image, but Arch ARM only has gtk2-compat,
+  # which does not provide Steam's legacy GTK2 sonames. Use Steam's own ARM64
+  # runtime libraries and expose only the sonames Steam has needed at startup.
+  local -a libs=(
+    libibus-1.0.so.5
+    libgtk-x11-2.0.so.0
+    libgdk-x11-2.0.so.0
+  )
+
+  runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
+  [[ -n "${runtime_lib_dir}" ]] || return 0
+
+  dst="${steam_root}/lib/aarch64-linux-gnu"
+  mkdir -p "${dst}"
+  for lib in "${libs[@]}"; do
+    target="$(find "${runtime_lib_dir}" -maxdepth 1 -name "${lib}.*" -print -quit)"
+    if [[ -n "${target}" ]]; then
+      ln -sfnT "${target}" "${dst}/${lib}"
+    fi
+  done
+}
+
 link_first_existing() {
   local link fallback target
 
@@ -395,6 +419,7 @@ PY
 }
 
 if [[ "${1:-}" == "--repair-proton-beta-runtime-links" ]]; then
+  repair_steam_arm64_runtime_links
   repair_proton_beta_runtime_links
   exit 0
 fi
@@ -406,16 +431,7 @@ if [[ ! -d "${steam_root}/steam-runtime-steamrt-arm64" ]]; then
   rm -f "${steam_root}/steam-runtime-steamrt-arm64.tar.xz"
 fi
 
-runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
-if [[ -n "${runtime_lib_dir}" ]]; then
-  mkdir -p "${steam_root}/lib/aarch64-linux-gnu"
-  for soname in libibus-1.0.so.5; do
-    target="$(find "${runtime_lib_dir}" -maxdepth 1 -name "${soname}.*" -print -quit)"
-    if [[ -n "${target}" ]]; then
-      ln -sfnT "${target}" "${steam_root}/lib/aarch64-linux-gnu/${soname}"
-    fi
-  done
-fi
+repair_steam_arm64_runtime_links
 
 if [[ ! -d "${steam_root}/steamrtarm64" ]]; then
   manifest_url="${THORCH_STEAM_MANIFEST_URL:-https://client-update.fastly.steamstatic.com/steam_client_${steam_branch}_linuxarm64}"
