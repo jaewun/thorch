@@ -2,7 +2,7 @@
 
 pkgname=thorch-waydroid-installer
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='First-boot Waydroid setup helper for Thorch'
 arch=(aarch64)
 license=(GPL-2.0-or-later)
@@ -17,5 +17,4 @@ package() {
   cp -a . "${pkgdir}/"
   chmod 755 "${pkgdir}/usr/bin/thorch-install-waydroid"
   chmod 755 "${pkgdir}/usr/bin/thorch-start-waydroid"
-  chmod 755 "${pkgdir}/etc/skel/Desktop/thorch-install-waydroid.desktop"
 }

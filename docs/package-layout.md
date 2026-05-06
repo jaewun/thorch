@@ -99,7 +99,7 @@ library. Vulkan acceleration is provided by FEX's Vulkan thunk, which forwards
 guest Vulkan calls to the patched native aarch64 host driver.
 
 `thorch-waydroid-installer` provides the opt-in first-boot Waydroid setup
-command and desktop launcher. It does not redistribute Waydroid or Android
-images in the base image; the helper installs Arch Linux ARM's `waydroid` and
-`python-pyclip` packages, verifies BinderFS, initializes vanilla Waydroid, and
-creates the per-user Waydroid launcher during setup.
+command and app-menu installer entry. It does not redistribute Waydroid or
+Android images in the base image; the helper installs Arch Linux ARM's
+`waydroid` and `python-pyclip` packages, verifies BinderFS, and initializes
+vanilla Waydroid. The installed Waydroid package provides the runtime launcher.

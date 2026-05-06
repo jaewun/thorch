@@ -58,8 +58,7 @@ root_cmd() {
 }
 
 state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/thorch"
-launcher_dir="${HOME}/.local/share/applications"
-install -d "${state_dir}" "${launcher_dir}" "${HOME}/.local/bin"
+install -d "${state_dir}" "${HOME}/.local/bin"
 
 echo "Installing Waydroid packages."
 root_cmd pacman -S --needed --noconfirm waydroid python-pyclip
@@ -102,16 +101,7 @@ if ! waydroid prop set persist.waydroid.multi_windows true; then
   echo "Could not set multi-window mode yet; Waydroid can still be launched and configured later." >&2
 fi
 
-cat > "${launcher_dir}/thorch-waydroid.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Waydroid
-Comment=Launch Android apps with Waydroid
-Exec=/usr/bin/thorch-start-waydroid
-Icon=waydroid
-Terminal=false
-Categories=System;
-EOF
+rm -f "${HOME}/.local/share/applications/thorch-waydroid.desktop"
 
 cat > "${state_dir}/waydroid-installed" <<EOF
 installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
