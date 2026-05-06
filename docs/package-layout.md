@@ -1,23 +1,25 @@
 # Package Layout
 
-`linux-thorch` packages prebuilt ROCKNIX SM8550 kernel artifacts for AYN Thor.
-It installs the imported ROCKNIX `/KERNEL` source payload, matching modules, a
-module-tree `Image` anchor for mkinitcpio, and a mkinitcpio preset. It does not
-install raw `/boot/Image`; `/boot/KERNEL` is the ABL boot payload.
-Thorch does not replay ROCKNIX kernel patches in v1; it builds its own initramfs
-against the imported kernel. When building `/boot/KERNEL`, Thorch repacks
-ROCKNIX's imported Android boot image so the original kernel payload and
-embedded Thor DTB are preserved while only the initramfs and root command line
-change.
+`linux-thorch` packages Thorch's ROCKNIX-derived SM8550 kernel artifacts for
+AYN Thor. The source-build path starts from ROCKNIX's public Linux recipe,
+applies the ROCKNIX SM8550 patch stack and Thor DTS overlays, then applies
+Thorch's required BinderFS/Waydroid config fragment. The package installs the
+resulting `/KERNEL` ABL boot payload, matching modules, a module-tree `Image`
+anchor for mkinitcpio, the required config fragment for build guards, and a
+mkinitcpio preset. It does not install raw `/boot/Image`; `/boot/KERNEL` is the
+ABL boot payload. When building `/boot/KERNEL`, Thorch preserves the imported
+ROCKNIX Android boot-image layout but uses Thorch's source-built kernel payload
+and embedded Thor DTB while replacing the initramfs and root command line.
 
 `thorch-bsp` owns the ABL boot contract, including
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
 USB debug gadget, boot diagnostics, Thor joystick RGB control, fake-suspend and
-power-key handling, dual-panel backlight helpers, gamepad/input udev rules,
-Plasma Mobile action-drawer overrides, and ALSA UCM snippets. The action-drawer
-override is stateful: package install/upgrade runs a sync helper so SteamOS mode
-can keep its patched Plasma Mobile drawer enabled while normal desktop/mobile
-sessions restore the stock QML.
+power-key handling, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
+backlight helpers, gamepad/input udev rules, Plasma Mobile action-drawer
+overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
+action-drawer override is stateful: package install/upgrade runs a sync helper
+so SteamOS mode can keep its patched Plasma Mobile drawer enabled while normal
+desktop/mobile sessions restore the stock QML.
 
 `thorch-firmware-rocknix` packages the synced public ROCKNIX firmware tree into
 `/usr/lib/firmware`. It also installs the matching ROCKNIX `/SYSTEM`
@@ -31,12 +33,12 @@ overlay.
 `thorch-kde-defaults` installs the Plasma Desktop dependencies, SDDM defaults,
 KWin display and touch seeds, virtual keyboard settings, audio user units,
 touch calibration service, the F24 desktop escape helper, OLED Plasma theme and
-color scheme, desktop/mobile session switchers, Firefox, and the core KDE
-desktop applications. Plasma Mobile is installed for testing and SteamOS-mode
-handoff, but the image builder selects Plasma Desktop by default unless
-`THORCH_DEFAULT_SESSION` is changed. Session changes go through
-`thorch-sessionctl`, which stages SDDM autologin updates and prefers a clean
-reboot over restarting SDDM from inside a live Plasma session.
+color scheme, desktop/mobile session switchers, Firefox, the opt-in ambient RGB
+sampler, and the core KDE desktop applications. Plasma Mobile is installed for
+testing and SteamOS-mode handoff, but the image builder selects Plasma Desktop
+by default unless `THORCH_DEFAULT_SESSION` is changed. Session changes go
+through `thorch-sessionctl`, which stages SDDM autologin updates and prefers a
+clean reboot over restarting SDDM from inside a live Plasma session.
 
 `thorch-firstboot` installs the fullscreen QML onboarding app, root helper,
 Polkit rule, autostart entry, and optional Wayland session entry. The helper
@@ -95,3 +97,9 @@ available, the installer copies that x86_64 guest driver into the rootfs just
 like ROCKNIX. It still refuses to copy the aarch64 host driver over the guest
 library. Vulkan acceleration is provided by FEX's Vulkan thunk, which forwards
 guest Vulkan calls to the patched native aarch64 host driver.
+
+`thorch-waydroid-installer` provides the opt-in first-boot Waydroid setup
+command and desktop launcher. It does not redistribute Waydroid or Android
+images in the base image; the helper installs Arch Linux ARM's `waydroid` and
+`python-pyclip` packages, verifies BinderFS, initializes vanilla Waydroid, and
+creates the per-user Waydroid launcher during setup.

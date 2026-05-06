@@ -5,8 +5,10 @@ from public upstreams and recorded with provenance files.
 
 ## ROCKNIX
 
-The public ROCKNIX distribution repository and ROCKNIX image artifacts provide
-the SM8550 kernel, AYN Thor DTB, input mappings, and firmware used by Thorch:
+The public ROCKNIX distribution repository provides the SM8550 kernel recipe,
+patch stack, AYN Thor DTS overlays, input mappings, and firmware used by
+Thorch. ROCKNIX image artifacts provide the ABL boot-image template plus runtime
+payloads that Thorch repacks around its source-built kernel:
 
 https://github.com/ROCKNIX/distribution
 
@@ -14,7 +16,7 @@ Use a pinned commit or labelled ROCKNIX image build for release builds:
 
 ```bash
 ./scripts/sync-rocknix-sources.sh --ref <commit-sha> --with-firmware
-./scripts/import-rocknix-kernel.sh --boot-dir /mnt/rocknix-boot --root-dir /mnt/rocknix-root --ref <rocknix-build-label>
+make import-kernel BOOT_DIR=/mnt/rocknix-boot ROOT_DIR=/mnt/rocknix-root KERNEL_REF=<rocknix-build-label>
 ```
 
 The sync and import scripts write provenance files into `vendor/rocknix-sm8550`,
@@ -22,8 +24,9 @@ The sync and import scripts write provenance files into `vendor/rocknix-sm8550`,
 traced back to the exact upstream source and image artifact.
 
 Image and package builds refuse kernel provenance that points back at local
-`makepkg` output or smoke-test imports. Re-import kernel artifacts from a mounted
-or extracted ROCKNIX image before preparing release artifacts.
+`makepkg` output or smoke-test imports. Re-import the ROCKNIX boot
+template/runtime from a mounted or extracted ROCKNIX image and rebuild the
+Thorch BinderFS kernel before preparing release artifacts.
 
 ## AYN Linux
 
@@ -40,10 +43,10 @@ The important public branches are:
   DTS equivalent to `sm8550/v6.17.5`, carries small SM8550 common cleanup, and
   adds the separate CQ8725S/SM8750 Odin 3 device tree stack.
 
-Thorch still imports the packaged ROCKNIX kernel/runtime artifacts for builds,
-but AYN's branches should be treated as source-level provenance and review
-material when updating kernel, DTS, firmware paths, ALSA card aliases, gamepad
-handling, or RGB support.
+Thorch follows ROCKNIX's packaged kernel recipe for builds, but AYN's branches
+should be treated as source-level provenance and review material when updating
+kernel, DTS, firmware paths, ALSA card aliases, gamepad handling, or RGB
+support.
 
 ## Firmware
 

@@ -3,12 +3,13 @@
 # Thorch
 
 Thorch is an experimental Arch Linux ARM image for the AYN Thor, built on top of
-public ROCKNIX work. It imports ROCKNIX's SM8550 `/KERNEL` Android boot image,
-kernel `Image`, modules, firmware, runtime graphics pieces, FEX assets, device
+public ROCKNIX work. It syncs ROCKNIX's SM8550 kernel recipe, patch stack, Thor
+DTS overlays, firmware, runtime graphics pieces, FEX assets, device
 configuration, handheld package patch sets, and ABL-compatible boot layout.
 
-What Thorch adds is an Arch root filesystem, a Thorch initramfs repacked into
-the imported ROCKNIX boot image, local Arch packages, KDE defaults, handheld
+What Thorch adds is an Arch root filesystem, a ROCKNIX-derived Thor kernel with
+Thorch's BinderFS/Waydroid config fragment, a Thorch initramfs repacked into the
+ROCKNIX-compatible boot image, local Arch packages, KDE defaults, handheld
 input/gaming integration, debug tooling, and an internal installer around that
 base.
 
@@ -19,7 +20,7 @@ the recovery and staging path.
 ## Current Scope
 
 - Arch Linux ARM aarch64 root filesystem.
-- Local packages for the imported ROCKNIX boot/kernel artifacts,
+- Local packages for the ROCKNIX-derived Thor kernel artifacts,
   firmware/runtime artifacts, board support, KDE defaults, internal install,
   FEX runtime, ROCKNIX-patched Gamescope, InputPlumber maps, ROCKNIX SM8550
   quirks, MangoHud, and firstboot-driven Steam/gaming setup.
@@ -31,10 +32,12 @@ the recovery and staging path.
 - ROCKNIX-derived SM8550 handheld hints for audio, thermal, CPU/GPU frequency
   paths, modifier buttons, touchscreen, and MangoHud support.
 - USB RNDIS debug gadget with SSH on `10.66.0.1` when connected to a host.
-- Thor joystick RGB helper with battery-status, static color, and off modes.
+- Thor joystick RGB helper with battery-status, static color, off, and opt-in
+  ambient desktop color modes.
 - ROCKNIX ABL-compatible FAT boot partition.
-- Top-level `/KERNEL` Android boot image repacked from the imported ROCKNIX
-  payload with Thorch's initramfs and image root UUID.
+- Top-level `/KERNEL` Android boot image repacked from the ROCKNIX boot-image
+  template with Thorch's BinderFS-capable kernel, initramfs, and image root
+  UUID.
 - Internal installer that formats selected Linux boot/root partitions and never
   flashes ABL.
 
@@ -53,8 +56,8 @@ and license notices clear.
 
 Thorch currently syncs or imports:
 
-- Official ROCKNIX SM8550 image artifacts: `/KERNEL`, kernel `Image`,
-  modules, selected `/SYSTEM` runtime files, and FEX runtime files.
+- Official ROCKNIX SM8550 image artifacts: `/KERNEL` boot-image template,
+  selected `/SYSTEM` runtime files, and FEX runtime files.
 - Public ROCKNIX firmware, filesystem overlays, device configuration, package
   patches/configs, quirk metadata, kernel metadata, and related platform files.
 - ROCKNIX handheld gamescope patches, MangoHud SM8550 GPU support/config, and
@@ -110,18 +113,20 @@ This populates `vendor/rocknix-sm8550` with public firmware, source overlays,
 InputPlumber data, ROCKNIX package patch/config inputs, and SM8550 quirk
 metadata. It also records source provenance for later audits.
 
-Import matching ROCKNIX kernel and runtime artifacts. By default this downloads
-the latest official ROCKNIX SM8550 nightly, verifies its `.sha256`, extracts the
-kernel and FEX runtime artifacts, and writes them to `vendor/rocknix-kernel` and
-`vendor/rocknix-runtime`:
+Sync matching ROCKNIX runtime artifacts and build the Thorch kernel. By default
+this downloads the latest official ROCKNIX SM8550 nightly, verifies its
+`.sha256`, extracts the boot-image template and FEX runtime artifacts, writes
+them to `vendor/rocknix-kernel` and `vendor/rocknix-runtime`, then source-builds
+a ROCKNIX-derived Thor kernel with BinderFS support:
 
 ```bash
 make kernel
 ```
 
 You can also import manually from a mounted or extracted ROCKNIX image. The
-import needs a real ROCKNIX `/KERNEL` and matching modules; a raw `Image` is
-used when present or derived from `/KERNEL` when needed:
+import needs a real ROCKNIX `/KERNEL` and matching modules; the make target then
+rebuilds the Thorch BinderFS kernel against that imported boot template/runtime
+unless `THORCH_KERNEL_SOURCE_BUILD=0` is set for diagnostics:
 
 ```bash
 make import-kernel BOOT_DIR=/mnt/rocknix-boot ROOT_DIR=/mnt/rocknix-root KERNEL_REF=<rocknix-build-label>
@@ -130,8 +135,8 @@ make import-kernel BOOT_DIR=/mnt/rocknix-boot ROOT_DIR=/mnt/rocknix-root KERNEL_
 A clean build needs real ROCKNIX image input. Do not satisfy this step from
 previous Thorch build artifacts, local `makepkg` package directories, or
 smoke-test kernel trees; those paths are intentionally rejected. `make build`
-and `make packages` will run the ROCKNIX kernel/runtime sync when imported
-kernel or FEX artifacts are missing, and will run the public source sync when
+and `make packages` will run the ROCKNIX kernel/runtime sync when kernel or FEX
+artifacts are missing, and will run the public source sync when
 package patch/config inputs are missing.
 
 Build the image. The default password/PIN for the default user and root is
@@ -188,12 +193,12 @@ notes.
 The default image package set is:
 `linux-thorch thorch-bsp thorch-firmware-rocknix thorch-kde-defaults
 thorch-firstboot thorch-installer thorch-fex-bin thorch-gamescope thorch-gaming-installers
-thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
+thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud`. Override
 `THORCH_IMAGE_PACKAGES` when you need a custom image package set.
 
 `thorch-firstboot` starts a fullscreen QML onboarding flow on first login for
 Wi-Fi, SD/live-vs-install intent, default mode, user/password setup, theme
-selection, Steam/gaming setup when Steam mode is selected, and safe in-window SD
+selection, Steam/Waydroid setup when selected, and safe in-window SD
 expansion/internal install actions.
 
 `thorch-inputplumber` installs InputPlumber's upstream rootfs contents and
@@ -207,6 +212,10 @@ removable media or the expected two-partition Thorch SD layout.
 
 `thorch-kde-defaults` pulls in Firefox and the core KDE desktop applications:
 Ark, Dolphin, Gwenview, Kate, KCalc, Konsole, Okular, and Spectacle.
+
+Ambient RGB mirroring is installed but left disabled for experiments. Start it
+with `sudo systemctl start thorch-rgb-ambient.service`; enable it only after it
+behaves well on the target hardware.
 
 
 ## First Boot Debug
