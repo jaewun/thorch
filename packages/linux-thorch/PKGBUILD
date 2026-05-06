@@ -8,11 +8,87 @@ arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
 license=(GPL-2.0-only)
 depends=(coreutils kmod mkinitcpio)
+makedepends=(python)
 provides=(linux)
 conflicts=(linux)
 options=('!strip')
 
 _kernel_dir="${THORCH_ROCKNIX_KERNEL_DIR:-${startdir}/../../vendor/rocknix-kernel}"
+
+verify_waydroid_kernel_config() {
+  local image="$1"
+
+  [[ "${THORCH_WAYDROID_KERNEL_REQUIRED:-1}" != "0" ]] || return 0
+
+  python3 - "${image}" "${startdir}/waydroid-kernel.config" <<'PY'
+import gzip
+import pathlib
+import sys
+
+image = pathlib.Path(sys.argv[1]).read_bytes()
+required_path = pathlib.Path(sys.argv[2])
+
+start = image.find(b"IKCFG_ST")
+end = image.find(b"IKCFG_ED", start)
+if start < 0 or end < 0:
+    raise SystemExit(f"{sys.argv[1]} does not embed a kernel config")
+
+blob = image[start + len(b"IKCFG_ST"):end].lstrip(b"\x00\n")
+try:
+    config_text = gzip.decompress(blob).decode("utf-8", "replace")
+except OSError as exc:
+    raise SystemExit(f"could not decompress embedded kernel config: {exc}")
+
+config = {}
+for line in config_text.splitlines():
+    if line.startswith("CONFIG_") and "=" in line:
+        key, value = line.split("=", 1)
+        config[key] = value
+
+missing = []
+for raw in required_path.read_text(encoding="utf-8").splitlines():
+    line = raw.split("#", 1)[0].strip()
+    if not line:
+        continue
+    key, value = line.split("=", 1)
+    if config.get(key) != value:
+        missing.append(f"{key}={value}")
+
+if missing:
+    raise SystemExit(
+        "linux-thorch is missing Waydroid kernel support:\n  "
+        + "\n  ".join(missing)
+        + "\nRebuild/import a kernel with Binder IPC and BinderFS enabled, "
+        "or set THORCH_WAYDROID_KERNEL_REQUIRED=0 for a local non-Waydroid experiment."
+    )
+PY
+}
+
+verify_waydroid_module_tree() {
+  local modules_dir="$1"
+  local missing=()
+  local module
+  local required_modules=(
+    kernel/net/ipv4/netfilter/nf_defrag_ipv4.ko
+    kernel/net/ipv6/netfilter/nf_defrag_ipv6.ko
+    kernel/net/netfilter/nf_conntrack.ko
+    kernel/net/netfilter/nf_nat.ko
+    kernel/net/netfilter/nft_chain_nat.ko
+    kernel/net/netfilter/nft_masq.ko
+    kernel/net/netfilter/nft_nat.ko
+  )
+
+  for module in "${required_modules[@]}"; do
+    [[ -f "${modules_dir}/${module}" ]] || missing+=("${module}")
+  done
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    printf 'linux-thorch is missing Waydroid network module support:\n' >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    printf 'Rebuild/import a kernel module tree with nftables NAT support.\n' >&2
+    exit 1
+  fi
+}
 
 package() {
   local image="${_kernel_dir}/boot/Image"
@@ -36,6 +112,8 @@ EOF
     exit 1
   fi
 
+  verify_waydroid_kernel_config "${image}"
+
   kernver="$(find "${modules_root}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -n1)"
   [[ -n "${kernver}" ]] || {
     echo "unable to determine kernel release from ${modules_root}" >&2
@@ -47,6 +125,7 @@ EOF
   cp -a "${modules_root}/${kernver}/." "${pkgdir}/usr/lib/modules/${kernver}/"
   find "${pkgdir}/usr/lib/modules/${kernver}" -name build -type l -delete
   find "${pkgdir}/usr/lib/modules/${kernver}" -name source -type l -delete
+  verify_waydroid_module_tree "${pkgdir}/usr/lib/modules/${kernver}"
 
   install -Dm644 "${kernel_boot}" "${pkgdir}/usr/share/thorch/rocknix/KERNEL"
   if [[ -f "${_kernel_dir}/PROVENANCE" ]]; then

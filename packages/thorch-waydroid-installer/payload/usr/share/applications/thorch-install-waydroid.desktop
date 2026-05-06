@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install Waydroid
+Comment=Install Android app support
+Exec=/usr/bin/thorch-install-waydroid
+Icon=waydroid
+Terminal=true
+Categories=System;

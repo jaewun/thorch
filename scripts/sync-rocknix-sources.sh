@@ -73,6 +73,7 @@ sparse_paths=(
   projects/ROCKNIX/devices/SM8550/config
   projects/ROCKNIX/devices/SM8550/linux
   projects/ROCKNIX/devices/SM8550/patches
+  projects/ROCKNIX/packages/linux
   projects/ROCKNIX/packages/apps/gamescope/patches
   projects/ROCKNIX/packages/apps/mangohud/config
   projects/ROCKNIX/packages/apps/mangohud/patches/SM8550
@@ -116,6 +117,7 @@ sync_required_dir "${src}/config" "${dest_abs}/config"
 sync_optional_dir "${src}/filesystem/usr/share/inputplumber" "${dest_abs}/inputplumber"
 sync_optional_dir "${src}/linux" "${dest_abs}/linux"
 sync_optional_dir "${src}/patches" "${dest_abs}/patches"
+sync_required_dir "${rocknix_root}/packages/linux" "${dest_abs}/packages/linux"
 sync_required_dir "${rocknix_root}/packages/apps/gamescope/patches" "${dest_abs}/packages/apps/gamescope/patches"
 sync_required_dir "${rocknix_root}/packages/apps/mangohud/config" "${dest_abs}/packages/apps/mangohud/config"
 sync_required_dir "${rocknix_root}/packages/apps/mangohud/patches/SM8550" "${dest_abs}/packages/apps/mangohud/patches/SM8550"

@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+assume_yes=0
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -y|--yes)
+      assume_yes=1
+      ;;
+    *)
+      echo "usage: thorch-install-waydroid [--yes]" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+cat <<'EOF'
+Thorch will install Waydroid from Arch Linux ARM, download the vanilla Android
+system/vendor images through Waydroid, and enable the Waydroid container.
+
+You are responsible for complying with Waydroid, LineageOS, and app license
+terms. This installer does not install Google Apps.
+EOF
+
+if [[ "${assume_yes}" -ne 1 ]]; then
+  printf 'Type WAYDROID to install Android app support: '
+  read -r answer
+  [[ "${answer}" == "WAYDROID" ]] || { echo "aborted"; exit 1; }
+fi
+
+if [[ "${EUID}" -eq 0 ]]; then
+  echo "Run this as the desktop user so launchers are installed into that user's home directory." >&2
+  exit 1
+fi
+
+for cmd in grep mountpoint pacman systemctl; do
+  command -v "${cmd}" >/dev/null 2>&1 || {
+    echo "Missing ${cmd}. Install the base system tools first." >&2
+    exit 1
+  }
+done
+
+root_cmd() {
+  if [[ "${EUID}" -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo "$@"
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    echo "Could not run privileged command: $*" >&2
+    echo "Install sudo or polkit, then try again." >&2
+    return 1
+  fi
+}
+
+state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/thorch"
+launcher_dir="${HOME}/.local/share/applications"
+install -d "${state_dir}" "${launcher_dir}" "${HOME}/.local/bin"
+
+echo "Installing Waydroid packages."
+root_cmd pacman -S --needed --noconfirm waydroid python-pyclip
+
+if ! grep -qw binder /proc/filesystems; then
+  if command -v modprobe >/dev/null 2>&1; then
+    root_cmd modprobe binder_linux "devices=binder,hwbinder,vndbinder" 2>/dev/null || true
+  fi
+fi
+
+if ! grep -qw binder /proc/filesystems; then
+  cat >&2 <<'EOF'
+This kernel does not expose BinderFS. Waydroid needs a kernel built with:
+  CONFIG_ANDROID_BINDER_IPC=y
+  CONFIG_ANDROID_BINDERFS=y
+
+Install a BinderFS-capable Thorch kernel, reboot, then run this installer again.
+EOF
+  exit 1
+fi
+
+echo "Checking BinderFS."
+root_cmd mkdir -p /dev/binderfs
+if ! mountpoint -q /dev/binderfs; then
+  root_cmd mount -t binder binder /dev/binderfs
+fi
+
+if [[ ! -f /var/lib/waydroid/waydroid.cfg && ! -f /var/lib/waydroid/images/system.img ]]; then
+  echo "Initializing Waydroid. This downloads the vanilla Android images."
+  root_cmd waydroid init
+else
+  echo "Waydroid is already initialized."
+fi
+
+echo "Enabling the Waydroid container service."
+root_cmd systemctl enable --now waydroid-container.service
+
+echo "Setting Waydroid multi-window mode."
+if ! waydroid prop set persist.waydroid.multi_windows true; then
+  echo "Could not set multi-window mode yet; Waydroid can still be launched and configured later." >&2
+fi
+
+cat > "${launcher_dir}/thorch-waydroid.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Waydroid
+Comment=Launch Android apps with Waydroid
+Exec=/usr/bin/thorch-start-waydroid
+Icon=waydroid
+Terminal=false
+Categories=System;
+EOF
+
+cat > "${state_dir}/waydroid-installed" <<EOF
+installed_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+EOF
+
+echo "Waydroid is installed. Use the Waydroid launcher from the app menu."

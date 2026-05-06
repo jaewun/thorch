@@ -11,8 +11,8 @@ usage() {
 usage: scripts/sync-rocknix-kernel.sh [options]
 
 Downloads an official ROCKNIX SM8550 image, verifies it when a .sha256 asset is
-available, mounts it read-only, and imports the prebuilt kernel artifacts into
-vendor/rocknix-kernel plus selected runtime artifacts into vendor/rocknix-runtime.
+available, mounts it read-only, imports firmware/runtime/template artifacts, and
+then source-builds the Thorch Thor kernel with BinderFS support enabled.
 
 Options:
   --source nightly|stable     Release channel to use. Project default: nightly.
@@ -28,6 +28,8 @@ Options:
   --cache-dir <dir>           Download/decompress cache. Default: build/cache/rocknix.
   --dest <dir>                Import destination. Default: vendor/rocknix-kernel.
   --runtime-dest <dir>        Runtime import destination. Default: vendor/rocknix-runtime.
+  --skip-thorch-kernel-build  Keep the imported ROCKNIX kernel payload. This is
+                              only for local diagnostics; Waydroid will fail.
   --keep-mounted              Leave the loop image mounted for debugging.
 
 This script must run as root because it uses loop devices and read-only mounts.
@@ -44,6 +46,7 @@ dest="${THORCH_ROCKNIX_KERNEL_DIR}"
 runtime_dest="${THORCH_ROCKNIX_RUNTIME_DIR}"
 keep_mounted=0
 allow_unverified="${ROCKNIX_KERNEL_ALLOW_UNVERIFIED:-0}"
+build_thorch_kernel="${THORCH_KERNEL_SOURCE_BUILD:-1}"
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -90,6 +93,10 @@ while [[ "$#" -gt 0 ]]; do
       runtime_dest="${2:-}"
       [[ -n "${runtime_dest}" ]] || die "--runtime-dest requires a value"
       shift 2
+      ;;
+    --skip-thorch-kernel-build)
+      build_thorch_kernel=0
+      shift
       ;;
     --keep-mounted)
       keep_mounted=1
@@ -461,7 +468,7 @@ fi
 
 provenance="${dest_abs}/PROVENANCE"
 provenance_tmp="$(mktemp)"
-grep -Ev '^SOURCE_(BOOT|ROOT)_DIR=|^SOURCE_(IMAGE|DTB|MODULES|VULKAN_FREEDRENO|DISPLAY_INFO|FEX_VULKAN_FREEDRENO|FREEDRENO_ICD)=' "${provenance}" > "${provenance_tmp}" || true
+grep -Ev '^SOURCE_(BOOT|ROOT)_DIR=|^SOURCE_(IMAGE|DTB|MODULES|VULKAN_FREEDRENO|DISPLAY_INFO|FEX_VULKAN_FREEDRENO|FREEDRENO_ICD)=|^(THORCH_KERNEL_|SOURCE_THORCH_KERNEL_|WAYDROID_KERNEL_)' "${provenance}" > "${provenance_tmp}" || true
 mv -f "${provenance_tmp}" "${provenance}"
 {
   printf 'ROCKNIX_KERNEL_SOURCE=%s\n' "${source_channel}"
@@ -488,8 +495,15 @@ if [[ -f "${runtime_provenance}" ]]; then
   chmod 0644 "${runtime_provenance}"
 fi
 
+if [[ "${build_thorch_kernel}" != "0" ]]; then
+  log "building Thorch Thor kernel with BinderFS support"
+  "${script_dir}/build-thorch-kernel.sh" --dest "${dest_abs}"
+else
+  warn "leaving imported ROCKNIX kernel payload unchanged; Waydroid BinderFS support is not guaranteed"
+fi
+
 find "${dest_abs}" -type d -exec chmod 0755 {} +
 find "${dest_abs}" -type f -exec chmod 0644 {} +
 
-log "ROCKNIX kernel artifacts ready in ${dest_abs}"
+log "Thorch kernel artifacts ready in ${dest_abs}"
 log "ROCKNIX runtime artifacts ready in ${runtime_dest_abs}"

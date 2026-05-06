@@ -11,8 +11,8 @@ usage() {
 usage: scripts/build-packages.sh [--skip-kernel] [--packages <name[,name...]>] [--skip-fresh] [--trust-existing]
 
 Builds Thorch aarch64 packages in an Arch Linux ARM rootfs using systemd-nspawn
-and qemu-user-static. The linux-thorch package wraps imported ROCKNIX kernel
-artifacts. Use --skip-kernel while iterating on userspace packages only.
+and qemu-user-static. The linux-thorch package wraps Thorch's ROCKNIX-derived
+kernel artifacts. Use --skip-kernel while iterating on userspace packages only.
 
   --packages           build only the comma-separated package list supplied;
                        useful for fast iteration on one package.
@@ -93,7 +93,7 @@ stock_kernel_firmware=(
   linux-firmware-whence
 )
 
-packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-inputplumber thorch-rocknix-quirks thorch-mangohud)
+packages=(thorch-bsp thorch-fex-bin thorch-firmware-rocknix thorch-kde-defaults thorch-installer thorch-gamescope thorch-gaming-installers thorch-waydroid-installer thorch-inputplumber thorch-rocknix-quirks thorch-mangohud)
 if [[ "${skip_kernel}" -eq 0 ]]; then
   packages=(linux-thorch "${packages[@]}")
 fi
@@ -341,7 +341,7 @@ if [[ " ${packages[*]} " == *" thorch-fex-bin "* && ! -x "${root}/${THORCH_ROCKN
   needs_rocknix_sync=1
 fi
 if [[ "${needs_rocknix_sync}" -eq 1 ]]; then
-  log "syncing prebuilt ROCKNIX SM8550 kernel/runtime artifacts"
+  log "syncing ROCKNIX runtime and source-building Thorch SM8550 kernel artifacts"
   "${script_dir}/sync-rocknix-kernel.sh"
 fi
 if { [[ " ${packages[*]} " == *" thorch-gamescope "* ]] ||
@@ -358,22 +358,21 @@ if [[ " ${packages[*]} " == *" thorch-fex-bin "* ]]; then
   validate_rocknix_runtime_provenance "${root}/${THORCH_ROCKNIX_RUNTIME_DIR}"
 fi
 
+install -d "${cache_dir}" "${repo_dir}" "$(dirname "${build_root}")"
 if [[ ! -d "${build_root}/usr" ]]; then
   log "extracting package build root"
   rm -rf "${build_root}"
   install -d "${build_root}"
-	  install -d "${cache_dir}" "${repo_dir}" "$(dirname "${build_root}")"
-	  ensure_alarm_rootfs "${rootfs_tar}"
-	  extract_alarm_rootfs_without_stock_kernel_firmware "${rootfs_tar}" "${build_root}"
-	  repair_alarm_usrmerge_links "${build_root}"
-	else
-	  install -d "${cache_dir}" "${repo_dir}" "$(dirname "${build_root}")"
-	  if [[ -f "${rootfs_tar}" ]]; then
-	    verify_alarm_rootfs "${rootfs_tar}" || \
-	      die "cached Arch Linux ARM rootfs failed verification; remove ${rootfs_tar} before recreating the package build root"
-	  fi
-	  repair_alarm_usrmerge_links "${build_root}"
-	fi
+  ensure_alarm_rootfs "${rootfs_tar}"
+  extract_alarm_rootfs_without_stock_kernel_firmware "${rootfs_tar}" "${build_root}"
+  repair_alarm_usrmerge_links "${build_root}"
+else
+  if [[ -f "${rootfs_tar}" ]]; then
+    verify_alarm_rootfs "${rootfs_tar}" || \
+      die "cached Arch Linux ARM rootfs failed verification; remove ${rootfs_tar} before recreating the package build root"
+  fi
+  repair_alarm_usrmerge_links "${build_root}"
+fi
 
 cp /usr/bin/qemu-aarch64-static "${build_root}/usr/bin/"
 configure_chroot_resolver "${build_root}"

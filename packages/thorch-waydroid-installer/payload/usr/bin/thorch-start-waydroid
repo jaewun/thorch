@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v waydroid >/dev/null 2>&1; then
+  echo "Waydroid is not installed. Run thorch-install-waydroid first." >&2
+  exit 1
+fi
+
+if command -v systemctl >/dev/null 2>&1 &&
+  ! systemctl is-active -q waydroid-container.service 2>/dev/null; then
+  if [[ "${EUID}" -eq 0 ]]; then
+    systemctl start waydroid-container.service
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    sudo systemctl start waydroid-container.service
+  elif command -v pkexec >/dev/null 2>&1; then
+    pkexec systemctl start waydroid-container.service
+  fi
+fi
+
+waydroid session start >/dev/null 2>&1 || true
+exec waydroid show-full-ui "$@"

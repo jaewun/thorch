@@ -49,7 +49,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 require_root
-require_cmd bsdtar curl dd file mcopy mdir mkfs.ext4 mkfs.vfat qemu-aarch64-static rsync sfdisk systemctl systemd-nspawn truncate uuidgen
+require_cmd awk bsdtar curl dd du file mcopy mdir mkfs.ext4 mkfs.vfat numfmt qemu-aarch64-static rsync sfdisk systemctl systemd-nspawn truncate uuidgen
 
 root="$(repo_root)"
 build_dir="${root}/${THORCH_BUILD_DIR}"
@@ -103,7 +103,7 @@ if [[ ! -d "${root}/${THORCH_FIRMWARE_DIR}/qcom/sm8550/ayn/thor" ]]; then
   "${script_dir}/sync-rocknix-sources.sh" --ref "${ROCKNIX_REF}" --with-firmware
 fi
 if ! rocknix_kernel_artifacts_ready; then
-  log "syncing prebuilt ROCKNIX SM8550 kernel artifacts"
+  log "syncing ROCKNIX runtime and source-building Thorch SM8550 kernel artifacts"
   "${script_dir}/sync-rocknix-kernel.sh"
 fi
 validate_rocknix_kernel_provenance "${root}/${THORCH_ROCKNIX_KERNEL_DIR}"
@@ -147,6 +147,45 @@ strip_control_output() {
   sed $'s/\x1b\\[[0-9;?]*[ -/]*[@-~]//g' | tr -d '\r' | sed '/^[[:space:]]*$/d'
 }
 
+round_up_bytes() {
+  local bytes="$1"
+  local quantum="$2"
+  printf '%s\n' "$(( (bytes + quantum - 1) / quantum * quantum ))"
+}
+
+image_size_is_auto() {
+  case "${THORCH_IMAGE_SIZE}" in
+    auto|fit|shrinkwrap)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+calculate_image_bytes() {
+  local boot_bytes="$1"
+  local used_bytes headroom_bytes metadata_slack_bytes image_bytes
+  local fixed_bytes auto_bytes align_bytes
+
+  if ! image_size_is_auto; then
+    parse_size_bytes "${THORCH_IMAGE_SIZE}"
+    return
+  fi
+
+  used_bytes="$(du -sx --block-size=1 "${rootfs_dir}" | awk '{print $1}')"
+  headroom_bytes="$(parse_size_bytes "${THORCH_IMAGE_AUTO_HEADROOM}")"
+  metadata_slack_bytes=$((used_bytes / 20))
+  fixed_bytes=$((first_lba * sector_size + boot_bytes + 34 * sector_size))
+  auto_bytes=$((fixed_bytes + used_bytes + metadata_slack_bytes + headroom_bytes))
+  align_bytes=$((1024 * 1024))
+  image_bytes="$(round_up_bytes "${auto_bytes}" "${align_bytes}")"
+
+  log "auto-sized raw image to $(numfmt --to=iec --suffix=B "${image_bytes}") ($(numfmt --to=iec --suffix=B "${used_bytes}") rootfs, $(numfmt --to=iec --suffix=B "${headroom_bytes}") headroom)"
+  printf '%s\n' "${image_bytes}"
+}
+
 stage_image_packages() {
   local package_files=()
   local pkg matches
@@ -165,18 +204,33 @@ stage_image_packages() {
   cp -f "${package_files[@]}" "${rootfs_dir}/var/cache/thorch/"
 }
 
+cleanup_rootfs_for_image() {
+  log "removing build-time caches from image rootfs"
+  rm -f "${rootfs_dir}/usr/bin/qemu-aarch64-static"
+  rm -rf "${rootfs_dir}/var/cache/pacman/pkg/"*
+  rm -rf "${rootfs_dir}/var/cache/thorch/"*
+  rm -rf "${rootfs_dir}/tmp/"* "${rootfs_dir}/var/tmp/"*
+  rm -f "${rootfs_dir}/var/log/"*.log
+  install -d -m 0755 "${rootfs_dir}/var/cache/pacman/pkg" "${rootfs_dir}/var/cache/thorch"
+  install -d -m 1777 "${rootfs_dir}/tmp" "${rootfs_dir}/var/tmp"
+}
+
 remove_stock_firmware() {
   run_rootfs "installed_stock=\$(pacman -Qq ${stock_kernel_firmware[*]} 2>/dev/null || true); [[ -z \"\${installed_stock}\" ]] || pacman -Rdd --noconfirm \${installed_stock}"
+}
+
+remove_orphaned_dependencies() {
+  run_rootfs "orphans=\$(pacman -Qdtq 2>/dev/null || true); [[ -z \"\${orphans}\" ]] || pacman -Rns --noconfirm \${orphans}"
 }
 
 log "preparing image rootfs"
 rm -rf "${boot_stage}" "${boot_img}" "${root_img}"
 if [[ "${reuse_rootfs}" -eq 0 ]]; then
-	  rm -rf "${rootfs_dir}"
-	  install -d "${rootfs_dir}"
-	  extract_alarm_rootfs_without_stock_kernel_firmware "${rootfs_tar}" "${rootfs_dir}"
-	  repair_alarm_usrmerge_links "${rootfs_dir}"
-	  cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
+  rm -rf "${rootfs_dir}"
+  install -d "${rootfs_dir}"
+  extract_alarm_rootfs_without_stock_kernel_firmware "${rootfs_tar}" "${rootfs_dir}"
+  repair_alarm_usrmerge_links "${rootfs_dir}"
+  cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
   configure_chroot_resolver "${rootfs_dir}"
   configure_alarm_pacman "${rootfs_dir}"
   mask_chroot_stock_kernel_hooks "${rootfs_dir}"
@@ -192,6 +246,7 @@ if [[ "${reuse_rootfs}" -eq 0 ]]; then
   stage_image_packages
   run_rootfs "pacman -U --noconfirm --overwrite 'usr/lib/firmware/ath12k/WCN7850/hw2.0/*' --overwrite 'usr/share/vulkan/icd.d/freedreno_icd*.json' --overwrite 'usr/lib/libvulkan_freedreno.so' --overwrite 'usr/lib/libdisplay-info.so.2' --overwrite 'usr/lib/libdisplay-info.so.0.2.0' --overwrite 'usr/share/fex-emu/libvulkan_freedreno.so' /var/cache/thorch/*.pkg.tar.*"
   remove_stock_firmware
+  remove_orphaned_dependencies
 else
   [[ -x "${rootfs_dir}/usr/bin/qemu-aarch64-static" ]] || cp /usr/bin/qemu-aarch64-static "${rootfs_dir}/usr/bin/"
   [[ -x "${rootfs_dir}/usr/bin/pacman" && -d "${rootfs_dir}/var/lib/pacman" ]] || die "cannot reuse missing rootfs: ${rootfs_dir}"
@@ -201,6 +256,7 @@ else
   log "refreshing local Thorch packages in reused rootfs"
   run_rootfs "pacman -U --noconfirm --overwrite 'usr/lib/firmware/ath12k/WCN7850/hw2.0/*' --overwrite 'usr/share/vulkan/icd.d/freedreno_icd*.json' --overwrite 'usr/lib/libvulkan_freedreno.so' --overwrite 'usr/lib/libdisplay-info.so.2' --overwrite 'usr/lib/libdisplay-info.so.0.2.0' --overwrite 'usr/share/fex-emu/libvulkan_freedreno.so' /var/cache/thorch/*.pkg.tar.*"
   remove_stock_firmware
+  remove_orphaned_dependencies
 fi
 
 unexpected_firmware="$(run_rootfs "pacman -Qq ${stock_kernel_firmware[*]} 2>/dev/null || true" | strip_control_output)"
@@ -266,6 +322,7 @@ rootfs_services=(
   thorch-rgb.service
   thorch-rgb-battery.service
   thorch-rgb-poweroff.service
+  thorch-fancontrol.service
   thorch-touchscreen-setup.service
   thorch-session-recovery.service
   thorch-powerkeyd.service
@@ -276,6 +333,7 @@ if [[ -f "${rootfs_dir}/usr/lib/systemd/system/inputplumber.service" ||
   rootfs_services+=(inputplumber.service)
 fi
 systemctl --root "${rootfs_dir}" enable "${rootfs_services[@]}" >/dev/null
+cleanup_rootfs_for_image
 
 log "creating boot filesystem image"
 install -d "${boot_stage}"
@@ -291,8 +349,8 @@ fi
 shopt -u nullglob dotglob
 
 log "creating root filesystem image"
-image_bytes="$(parse_size_bytes "${THORCH_IMAGE_SIZE}")"
 boot_bytes="$(parse_size_bytes "${boot_size}")"
+image_bytes="$(calculate_image_bytes "${boot_bytes}")"
 image_sectors=$((image_bytes / sector_size))
 boot_sectors=$(((boot_bytes + sector_size - 1) / sector_size))
 root_start=$((first_lba + boot_sectors))
