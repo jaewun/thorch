@@ -18,23 +18,23 @@ build() {
   rustc --test "${startdir}/inputd/thorch-inputd.rs" \
     --edition=2021 \
     -C opt-level=0 \
-    -o thorch-inputd-tests
-  ./thorch-inputd-tests --test-threads=1
+    -o "${srcdir}/thorch-inputd-tests"
+  "${srcdir}/thorch-inputd-tests" --test-threads=1
 
   rustc --test "${startdir}/powerd/thorch-powerd.rs" \
     --edition=2021 \
     -C opt-level=0 \
-    -o thorch-powerd-tests
-  ./thorch-powerd-tests --test-threads=1
+    -o "${srcdir}/thorch-powerd-tests"
+  "${srcdir}/thorch-powerd-tests" --test-threads=1
 
   rustc "${startdir}/inputd/thorch-inputd.rs" \
     --edition=2021 \
     -C opt-level=2 \
-    -o thorch-inputd
+    -o "${srcdir}/thorch-inputd"
   rustc "${startdir}/powerd/thorch-powerd.rs" \
     --edition=2021 \
     -C opt-level=2 \
-    -o thorch-powerd
+    -o "${srcdir}/thorch-powerd"
 }
 
 package() {
@@ -55,8 +55,8 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-debug-report"
   chmod 755 "${pkgdir}/usr/bin/thorch-backlight"
   rm -f "${pkgdir}/usr/bin/thorch-powerkeyd"
-  install -Dm755 "${startdir}/thorch-inputd" "${pkgdir}/usr/bin/thorch-inputd"
-  install -Dm755 "${startdir}/thorch-powerd" "${pkgdir}/usr/bin/thorch-powerd"
+  install -Dm755 "${srcdir}/thorch-inputd" "${pkgdir}/usr/bin/thorch-inputd"
+  install -Dm755 "${srcdir}/thorch-powerd" "${pkgdir}/usr/bin/thorch-powerd"
   chmod 755 "${pkgdir}/usr/bin/thorch-rgb"
   chmod 755 "${pkgdir}/usr/bin/thorch-fancontrol"
   chmod 755 "${pkgdir}/usr/bin/thorch-quicksetting-toggle"
