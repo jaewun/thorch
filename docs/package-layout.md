@@ -13,8 +13,8 @@ and embedded Thor DTB while replacing the initramfs and root command line.
 
 `thorch-bsp` owns the ABL boot contract, including
 `thorch-rebuild-abl-kernel`, `thorch-check-boot`, the mkinitcpio firmware hook,
-USB debug gadget, boot diagnostics, Thor joystick RGB control, fake-suspend and
-power-key handling, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
+USB debug gadget, boot diagnostics, Thor joystick RGB control, Rust power/input
+daemons, ROCKNIX-derived SM8550 PWM fan profiles, dual-panel
 backlight helpers, gamepad/input udev rules, Plasma Mobile action-drawer
 overrides, quick settings for USB/SSH/RGB toggles, and ALSA UCM snippets. The
 action-drawer override is stateful: package install/upgrade runs a sync helper

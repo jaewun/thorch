@@ -325,7 +325,8 @@ rootfs_services=(
   thorch-fancontrol.service
   thorch-touchscreen-setup.service
   thorch-session-recovery.service
-  thorch-powerkeyd.service
+  thorch-inputd.service
+  thorch-powerd.service
   thorch-debug-report.service
 )
 if [[ -f "${rootfs_dir}/usr/lib/systemd/system/inputplumber.service" ||
