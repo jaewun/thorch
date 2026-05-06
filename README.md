@@ -275,6 +275,14 @@ Without device arguments it can auto-detect one existing internal ROCKNIX/Thorch
 target. It only shrinks and wipes Android `userdata` when launched explicitly
 with `--create-from-userdata` and confirmed with `SHRINK USERDATA`.
 
+The first-boot internal install path uses that explicit create-if-needed mode
+after you accept the internal-storage data-loss warning: it installs to an
+existing ROCKNIX/Thorch target when one is present, or creates a target from the
+unique Android `userdata` partition at the Android size selected in firstboot
+when no existing target is found. If Android `userdata` is already smaller and
+there is post-userdata space from a previous interrupted install, Thorch reuses
+that space instead of shrinking `userdata` again.
+
 **Warning:** shrinking Android `userdata` is destructive. It deletes and
 recreates the `userdata` partition, so the existing Android instance, apps,
 settings, and local data on that partition are wiped.

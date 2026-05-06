@@ -9,6 +9,10 @@ Item {
     property int progressIndex: 0
     property var progressEvents: [
         {"progress": 2, "message": "Mock: starting the internal storage install.", "output": "Mock target: /dev/mockboot and /dev/mockroot"},
+        {"progress": 3, "message": "Mock: creating an internal Thorch target.", "output": "Mock Android userdata kept at 32 GiB"},
+        {"progress": 4, "message": "Mock: resizing Android userdata.", "output": "Mock userdata -> 32 GiB"},
+        {"progress": 5, "message": "Mock: creating the internal boot partition.", "output": "Mock ROCKNIX boot partition"},
+        {"progress": 6, "message": "Mock: creating the internal root partition.", "output": "Mock Thorch root partition"},
         {"progress": 8, "message": "Mock: preparing internal storage.", "output": "mkfs.vfat /dev/mockboot\nmkfs.ext4 /dev/mockroot"},
         {"progress": 18, "message": "Mock: copying Thorch to internal storage.", "output": "rsync / /mnt/thorch-internal"},
         {"progress": 38, "message": "Mock: copying Thorch to internal storage. 37%.", "output": "Copied 4.0 GiB of mock root."},
@@ -26,6 +30,7 @@ Item {
     signal postActionStarted(bool ok, string message)
     signal postActionProgress(int progress, string message, string output)
     signal postActionFinished(bool ok, string message, string output)
+    signal resetFinished(bool ok, string message)
 
     function apply(config) {
         if (config.installChoice === "install-internal" && !config.internalDataLossAccepted) {
@@ -40,6 +45,7 @@ Item {
                 "installChoice": "install-internal",
                 "phase": "internal-install-ready",
                 "internalDataLossAccepted": true,
+                "androidUserdataKeepGib": config.androidUserdataKeepGib || 32,
                 "installWaydroid": config.installWaydroid
             };
             applyFinished(true, "Mock: choices saved. Installing to internal storage next.", "install-internal");
@@ -83,6 +89,12 @@ Item {
         done = true;
         postActionStarted(true, "Mock: skipping first boot setup.");
         postActionFinished(true, "Mock: first boot setup was skipped.", "");
+    }
+
+    function resetFirstboot() {
+        initialState = {};
+        done = false;
+        resetFinished(true, "Mock: first boot setup has been reset.");
     }
 
     function launchPostAction(action) {
@@ -140,11 +152,7 @@ Item {
         onTriggered: {
             if (backend.progressIndex >= backend.progressEvents.length) {
                 stop();
-                backend.initialState = {
-                    "installChoice": "install-internal",
-                    "phase": "internal-install-complete-remove-sd",
-                    "internalDataLossAccepted": true
-                };
+                backend.initialState = {};
                 backend.postActionFinished(true, "Mock: Thorch has been copied to internal storage. Remove the SD card, then reboot.", "Mock install finished cleanly.");
                 return;
             }

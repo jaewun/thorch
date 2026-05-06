@@ -39,10 +39,46 @@ QtObject {
     property bool autoInternalInstallStarted: false
     property string pendingAutoPostAction: ""
     property bool internalDataLossAccepted: false
+    property int androidUserdataKeepGib: 32
     property var savedState: backend.initialState || ({})
     property string bootRole: backend.initialBootRole || "unknown"
     property bool secondStage: false
     property bool removeSdStage: false
+
+    function resetLocalState() {
+        page = 0;
+        wifiSelectedIndex = -1;
+        wifiPassword = "";
+        wifiMessage = "";
+        wifiConnectedSsid = "";
+        installChoice = "expand-sd";
+        modeChoice = "desktop";
+        steamCompanion = "mobile";
+        installWaydroid = hasNetwork();
+        waydroidChoiceTouched = false;
+        waydroidSetupDone = false;
+        themeChoice = "thorch-oled";
+        username = "thorch";
+        password = "";
+        confirmPassword = "";
+        applying = false;
+        applied = false;
+        resultMessage = "";
+        nextAction = "";
+        activePostAction = "";
+        postActionRunning = false;
+        postActionOutput = "";
+        postActionFailed = false;
+        postActionProgressValue = 0;
+        postActionProgressMessage = "";
+        autoInternalInstallStarted = false;
+        pendingAutoPostAction = "";
+        internalDataLossAccepted = false;
+        androidUserdataKeepGib = 32;
+        savedState = {};
+        secondStage = false;
+        removeSdStage = false;
+    }
 
     function selectedWifiSsid() {
         if (wifiSelectedIndex < 0 || wifiSelectedIndex >= wifiNetworks.length) {
@@ -134,7 +170,7 @@ QtObject {
     }
 
     function internalEraseWarning() {
-        return qsTr("Installing to internal storage can erase data on this device. If Thorch creates space from Android, Android's userdata partition (apps, files, and settings) will be wiped. Back up anything important before continuing.");
+        return qsTr("Installing to internal storage can erase data on this device. If Thorch creates space from Android, Android's userdata partition (apps, files, and settings) will be wiped and recreated at the selected size. Back up anything important before continuing.");
     }
 
     function installWarningAccepted() {
@@ -194,6 +230,14 @@ QtObject {
         backend.skipFirstboot();
     }
 
+    function resetFirstboot() {
+        if (applying || postActionRunning) {
+            return;
+        }
+        pendingAutoPostAction = "";
+        backend.resetFirstboot();
+    }
+
     function scheduleInternalInstall() {
         if (!autoInternalInstallStarted && nextAction === "install-internal") {
             scheduleAutomaticPostAction("install-internal");
@@ -215,6 +259,12 @@ QtObject {
         }
         if (state.internalDataLossAccepted === true) {
             internalDataLossAccepted = true;
+        }
+        if (state.androidUserdataKeepGib !== undefined) {
+            const keepGib = Number(state.androidUserdataKeepGib);
+            if (keepGib >= 1 && keepGib <= 512) {
+                androidUserdataKeepGib = Math.round(keepGib);
+            }
         }
         if (state.installWaydroid === true || state.installWaydroid === false) {
             installWaydroid = state.installWaydroid;
@@ -260,7 +310,11 @@ QtObject {
         } else if (state.phase === "expand-sd-ready") {
             applied = true;
             nextAction = "expand-sd";
-            resultMessage = qsTr("Using the rest of the SD card now, then Android app support will install.");
+            resultMessage = installChoice === "install-internal"
+                ? qsTr("Using the rest of the SD card now, then installing Thorch to internal storage.")
+                : (wantsWaydroidSetup()
+                    ? qsTr("Using the rest of the SD card now, then Android app support will install.")
+                    : qsTr("Using the rest of the SD card now."));
             page = donePage;
             scheduleAutomaticPostAction(nextAction);
         } else if (state.phase === "waydroid-setup-ready" || state.phase === "waydroid-setup-complete") {
@@ -300,6 +354,7 @@ QtObject {
             "username": username,
             "password": password,
             "internalDataLossAccepted": internalDataLossAccepted,
+            "androidUserdataKeepGib": androidUserdataKeepGib,
             "installWaydroid": installWaydroid
         });
     }
@@ -401,7 +456,11 @@ QtObject {
                 flow.removeSdStage = true;
                 flow.nextAction = "";
             }
-            if (ok && finishedAction === "expand-sd" && flow.wantsWaydroidSetup()) {
+            if (ok && finishedAction === "expand-sd" && flow.installChoice === "install-internal") {
+                flow.nextAction = "install-internal";
+                flow.resultMessage = qsTr("The SD card is ready. Installing Thorch to internal storage next.");
+                followupAction = "install-internal";
+            } else if (ok && finishedAction === "expand-sd" && flow.wantsWaydroidSetup()) {
                 flow.nextAction = "waydroid-setup";
                 flow.resultMessage = qsTr("The SD card is ready. Installing Android app support next.");
                 followupAction = "waydroid-setup";
@@ -434,6 +493,13 @@ QtObject {
         }
 
         function onRebootStarted(ok, message) {
+            flow.resultMessage = message;
+        }
+
+        function onResetFinished(ok, message) {
+            if (ok) {
+                flow.resetLocalState();
+            }
             flow.resultMessage = message;
         }
     }

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import "../components"
 
@@ -25,6 +26,39 @@ SetupPage {
             text: qsTr("Install to internal storage")
             checked: page.flow.installChoice === "install-internal"
             onClicked: page.flow.installChoice = "install-internal"
+        }
+
+        RowLayout {
+            visible: page.flow.installChoice === "install-internal"
+            Layout.fillWidth: true
+            spacing: 14
+
+            Label {
+                text: qsTr("Android userdata to keep")
+                color: "#89a0aa"
+                font.pixelSize: 17
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            SpinBox {
+                id: androidKeepSpin
+
+                from: 1
+                to: 512
+                value: page.flow.androidUserdataKeepGib
+                editable: true
+                font.pixelSize: 18
+                Layout.preferredWidth: 116
+
+                onValueModified: page.flow.androidUserdataKeepGib = value
+            }
+
+            Label {
+                text: qsTr("GiB")
+                color: "#f6fafc"
+                font.pixelSize: 17
+            }
         }
     }
 }

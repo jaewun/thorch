@@ -34,6 +34,7 @@ class Backend(QObject):
     postActionStarted = pyqtSignal(bool, str)
     postActionProgress = pyqtSignal(int, str, str)
     postActionFinished = pyqtSignal(bool, str, str)
+    resetFinished = pyqtSignal(bool, str)
     closeRequested = pyqtSignal()
 
     def __init__(self):
@@ -164,6 +165,16 @@ class Backend(QObject):
             self.postActionFinished.emit(ok, message, result.get("output", ""))
             if ok:
                 self.closeRequested.emit()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @pyqtSlot()
+    def resetFirstboot(self):
+        def worker():
+            ok, message, _result = self._run_helper("reset-json")
+            self._done = os.path.exists(DONE_FILE)
+            self._state = load_state()
+            self.resetFinished.emit(ok, message)
 
         threading.Thread(target=worker, daemon=True).start()
 

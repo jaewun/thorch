@@ -28,6 +28,12 @@ SetupPage {
         }
 
         ReviewRow {
+            visible: page.flow.installChoice === "install-internal"
+            label: qsTr("Android")
+            value: qsTr("%1 GiB kept").arg(page.flow.androidUserdataKeepGib)
+        }
+
+        ReviewRow {
             label: qsTr("Mode")
             value: page.flow.modeChoiceLabel(page.flow.finalMode())
         }

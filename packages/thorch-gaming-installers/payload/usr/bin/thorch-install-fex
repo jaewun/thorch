@@ -245,6 +245,57 @@ unpack_fex_rootfs_for_freedreno() {
   fi
 }
 
+rootfs_tree_looks_valid() {
+  local rootfs_tree="$1"
+
+  [[ -d "${rootfs_tree}/usr/lib" ]] || return 1
+  [[ -e "${rootfs_tree}/bin/sh" || -e "${rootfs_tree}/usr/bin/sh" ||
+      -e "${rootfs_tree}/bin/bash" || -e "${rootfs_tree}/usr/bin/bash" ]] || return 1
+}
+
+rootfs_sqsh_looks_valid() {
+  local rootfs_file="$1"
+
+  [[ -s "${rootfs_file}" ]] || return 1
+  command -v unsquashfs >/dev/null 2>&1 || {
+    echo "unsquashfs is required to validate the FEX Arch rootfs." >&2
+    exit 1
+  }
+  unsquashfs -s "${rootfs_file}" >/dev/null 2>&1
+}
+
+quarantine_bad_rootfs() {
+  local path="$1" reason="$2" quarantine
+
+  [[ -e "${path}" || -L "${path}" ]] || return 0
+  quarantine="${path}.invalid.$(date +%Y%m%d%H%M%S).$$"
+  echo "Existing FEX rootfs ${path} is ${reason}; moving it to ${quarantine}."
+  mv "${path}" "${quarantine}"
+}
+
+repair_rootfs_dir_before_fetch() {
+  local rootfs_dir="$1" rootfs_file rootfs_tree
+
+  rootfs_file="${rootfs_dir}/ArchLinux.sqsh"
+  rootfs_tree="${rootfs_dir}/ArchLinux"
+
+  if [[ -f "${rootfs_file}" ]] && ! rootfs_sqsh_looks_valid "${rootfs_file}"; then
+    quarantine_bad_rootfs "${rootfs_file}" "not a readable squashfs image"
+  fi
+
+  if [[ -d "${rootfs_tree}" ]] && ! rootfs_tree_looks_valid "${rootfs_tree}"; then
+    quarantine_bad_rootfs "${rootfs_tree}" "incomplete"
+  fi
+}
+
+rootfs_dir_has_valid_candidate() {
+  local rootfs_dir="$1"
+
+  [[ -d "${rootfs_dir}/ArchLinux" ]] && rootfs_tree_looks_valid "${rootfs_dir}/ArchLinux" && return 0
+  [[ -f "${rootfs_dir}/ArchLinux.sqsh" ]] && rootfs_sqsh_looks_valid "${rootfs_dir}/ArchLinux.sqsh" && return 0
+  return 1
+}
+
 restore_guest_freedreno_from_rootfs() {
   local rootfs_dir="$1" rootfs_file="$2" rootfs_tree="$3" guest_lib tmp_tree
 
@@ -311,20 +362,27 @@ if command -v FEXRootFSFetcher >/dev/null 2>&1; then
   rootfs_tree="${rootfs_dir}/ArchLinux"
   mkdir -p "${rootfs_dir}"
 
-  if [[ -f "${rootfs_file}" || -d "${rootfs_tree}" ]]; then
+  repair_rootfs_dir_before_fetch "${rootfs_dir}"
+
+  if rootfs_dir_has_valid_candidate "${rootfs_dir}"; then
     echo "FEX Arch rootfs already exists; leaving it in place."
   else
     FEXRootFSFetcher -y -x --distro-name arch --distro-version rolling
   fi
   for candidate in "${rootfs_dir}" "${HOME}/.fex-emu/RootFS" "${HOME}/.local/share/fex-emu/RootFS"; do
     [[ -n "${candidate}" ]] || continue
-    if [[ -f "${candidate}/ArchLinux.sqsh" || -d "${candidate}/ArchLinux" ]]; then
+    repair_rootfs_dir_before_fetch "${candidate}"
+    if rootfs_dir_has_valid_candidate "${candidate}"; then
       rootfs_dir="${candidate}"
       rootfs_file="${rootfs_dir}/ArchLinux.sqsh"
       rootfs_tree="${rootfs_dir}/ArchLinux"
       break
     fi
   done
+  if ! rootfs_dir_has_valid_candidate "${rootfs_dir}"; then
+    echo "FEXRootFSFetcher did not install a valid Arch rootfs." >&2
+    exit 1
+  fi
   unpack_fex_rootfs_for_freedreno "${rootfs_dir}" "${rootfs_file}" "${rootfs_tree}"
   install_rocknix_guest_freedreno "${rootfs_dir}" "${rootfs_file}" "${rootfs_tree}"
 else

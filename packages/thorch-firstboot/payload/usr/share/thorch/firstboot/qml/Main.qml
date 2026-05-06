@@ -97,6 +97,13 @@ ApplicationWindow {
                 onClicked: flow.skipFirstboot()
             }
 
+            Button {
+                text: qsTr("Start Again")
+                icon.name: "edit-undo"
+                enabled: !flow.applying && !flow.postActionRunning
+                onClicked: flow.resetFirstboot()
+            }
+
             Label {
                 text: flow.resultMessage
                 color: flow.applied ? "#45de80" : "#ffb84d"

@@ -87,6 +87,81 @@ def run_capture(command, *, input_text=None):
     return proc.returncode, output
 
 
+def command_text(command):
+    try:
+        proc = subprocess.run(command, text=True, capture_output=True, check=False)
+    except OSError:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return (proc.stdout or "").strip().splitlines()[0] if proc.stdout else ""
+
+
+def resolve_block_source(source):
+    source = source.split("[", 1)[0]
+    if source.startswith(("UUID=", "LABEL=", "PARTUUID=", "PARTLABEL=")):
+        source = command_text(["findfs", source])
+    if not source:
+        return ""
+    try:
+        return str(pathlib.Path(source).resolve())
+    except OSError:
+        return ""
+
+
+def base_block(device):
+    parent = command_text(["lsblk", "-no", "PKNAME", device]).strip()
+    if parent:
+        return parent
+    base = pathlib.Path(device).name
+    if "p" in base:
+        return base.rsplit("p", 1)[0]
+    return base.rstrip("0123456789")
+
+
+def block_label(device):
+    return (
+        command_text(["blkid", "-s", "LABEL", "-o", "value", device])
+        or command_text(["lsblk", "-no", "LABEL", device])
+    ).strip()
+
+
+def booted_from_thorch_sd_root():
+    root_source = command_text(["findmnt", "-no", "SOURCE", "/"])
+    root_fstype = command_text(["findmnt", "-no", "FSTYPE", "/"])
+    if root_fstype != "ext4":
+        return False
+
+    root_device = resolve_block_source(root_source)
+    if not root_device.startswith("/dev/") or not pathlib.Path(root_device).exists():
+        return False
+
+    disk_name = base_block(root_device)
+    if not disk_name:
+        return False
+
+    removable_path = pathlib.Path("/sys/class/block") / disk_name / "removable"
+    try:
+        if removable_path.read_text(encoding="utf-8").strip() == "1":
+            return True
+    except OSError:
+        pass
+
+    # Thor's SD slot can report RM=0, so also accept the known Thorch SD image
+    # layout: THORCH_ROOT plus ROCKNIX /boot on the same mmc disk.
+    if not disk_name.startswith("mmcblk"):
+        return False
+
+    boot_source = command_text(["findmnt", "-no", "SOURCE", "/boot"])
+    boot_device = resolve_block_source(boot_source)
+    if not boot_device.startswith("/dev/") or not pathlib.Path(boot_device).exists():
+        return False
+    if base_block(boot_device) != disk_name:
+        return False
+
+    return block_label(root_device) == "THORCH_ROOT" and block_label(boot_device) == "ROCKNIX"
+
+
 def read_payload():
     try:
         return json.loads(sys.stdin.read())
@@ -110,6 +185,19 @@ def bool_field(payload, name, default=False):
     return bool(value)
 
 
+def int_field(payload, name, default, minimum, maximum):
+    value = payload.get(name, default)
+    if isinstance(value, bool):
+        fail(f"{name} must be a whole number between {minimum} and {maximum}.")
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        fail(f"{name} must be a whole number between {minimum} and {maximum}.")
+    if value < minimum or value > maximum:
+        fail(f"{name} must be between {minimum} and {maximum}.")
+    return value
+
+
 def validate_payload(payload):
     username = string_field(payload, "username", "thorch").strip()
     password = string_field(payload, "password")
@@ -117,6 +205,7 @@ def validate_payload(payload):
     theme = string_field(payload, "theme", "thorch-oled")
     install_choice = string_field(payload, "installChoice", "expand-sd")
     internal_data_loss_accepted = bool_field(payload, "internalDataLossAccepted")
+    android_userdata_keep_gib = int_field(payload, "androidUserdataKeepGib", 32, 1, 512)
     install_waydroid = bool_field(payload, "installWaydroid")
 
     if not USER_RE.match(username):
@@ -152,6 +241,7 @@ def validate_payload(payload):
         "theme": theme,
         "install_choice": install_choice,
         "internal_data_loss_accepted": internal_data_loss_accepted,
+        "android_userdata_keep_gib": android_userdata_keep_gib,
         "install_waydroid": install_waydroid,
     }
 
@@ -264,6 +354,14 @@ def write_state(state, done=False):
         DONE_FILE.unlink()
 
 
+def reset_state_files():
+    for path in (DONE_FILE, STATE_FILE):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def save_setup_state(settings, phase, done=False):
     state = read_state()
     state.update({
@@ -273,8 +371,14 @@ def save_setup_state(settings, phase, done=False):
         "theme": settings["theme"],
         "installChoice": settings["install_choice"],
         "internalDataLossAccepted": settings.get("internal_data_loss_accepted", False),
+        "androidUserdataKeepGib": settings.get("android_userdata_keep_gib", 32),
         "installWaydroid": settings.get("install_waydroid", False),
     })
+    post_expand_action = settings.get("post_expand_action", "")
+    if post_expand_action:
+        state["postExpandAction"] = post_expand_action
+    else:
+        state.pop("postExpandAction", None)
     if done:
         state["completedAt"] = utc_timestamp()
     else:
@@ -307,7 +411,11 @@ def apply_json():
     configure_session(settings["username"], settings["mode"])
 
     action = next_action(settings)
-    if action == "install-internal":
+    if booted_from_thorch_sd_root():
+        settings["post_expand_action"] = "install-internal" if action == "install-internal" else ""
+        action = "expand-sd"
+        phase = "expand-sd-ready"
+    elif action == "install-internal":
         phase = "internal-install-ready"
     elif action == "expand-sd":
         phase = "expand-sd-ready"
@@ -319,7 +427,9 @@ def apply_json():
     save_setup_state(settings, phase=phase, done=action not in {"install-internal", "expand-sd"} and not settings.get("install_waydroid"))
 
     message = "Setup is complete. Reboot when you're ready to start Thorch."
-    if action == "install-internal":
+    if action == "expand-sd" and settings.get("post_expand_action") == "install-internal":
+        message = "Your choices are saved. Thorch will expand the SD card first, then install to internal storage."
+    elif action == "install-internal":
         message = "Your choices are saved. Thorch will install to internal storage next. Keep the SD card inserted until it finishes."
     elif action == "expand-sd":
         if settings.get("install_waydroid"):
@@ -442,14 +552,26 @@ def install_internal_json():
     if not pathlib.Path("/usr/bin/thorch-install-internal").exists():
         emit_json(False, "Internal storage setup is not available on this system.", code=1)
 
-    rc, output = run_capture(["/usr/bin/thorch-install-internal"], input_text="INSTALL THORCH\n")
+    android_userdata_keep_gib = installer_android_userdata_keep_gib()
+    command = [
+        "/usr/bin/thorch-install-internal",
+        "--create-from-userdata",
+        "--userdata-keep-gib",
+        android_userdata_keep_gib,
+        "--yes",
+    ]
+    rc, output = run_capture(command)
     if rc == 0:
-        update_phase("internal-install-complete-remove-sd", done=False)
+        reset_state_files()
         emit_json(True, "Thorch has been copied to internal storage. Remove the SD card, then reboot.", output=output)
     emit_json(False, "Installing to internal storage failed.", code=rc or 1, output=output)
 
 
 PHASE_PROGRESS = {
+    "create-target": 3,
+    "resize-userdata": 4,
+    "create-boot": 5,
+    "create-root": 6,
     "format": 8,
     "copy-root": 18,
     "copy-boot": 72,
@@ -460,6 +582,10 @@ PHASE_PROGRESS = {
 }
 
 PHASE_MESSAGES = {
+    "create-target": "Creating an internal Thorch target.",
+    "resize-userdata": "Resizing Android userdata.",
+    "create-boot": "Creating the internal boot partition.",
+    "create-root": "Creating the internal root partition.",
     "format": "Preparing internal storage.",
     "copy-root": "Copying Thorch to internal storage.",
     "copy-boot": "Copying boot files.",
@@ -473,6 +599,21 @@ RSYNC_PROGRESS_RANGES = {
     "copy-root": (18, 72),
     "copy-boot": (72, 80),
 }
+
+
+def installer_android_userdata_keep_gib():
+    value = read_state().get("androidUserdataKeepGib", 32)
+    if isinstance(value, bool):
+        return "32"
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return "32"
+    if value < 1:
+        return "1"
+    if value > 512:
+        return "512"
+    return str(value)
 
 
 def install_progress_from_line(line, phase, current_progress):
@@ -502,10 +643,19 @@ def install_internal_stream_json():
     env.setdefault("LANG", "C.UTF-8")
     env.setdefault("LC_ALL", "C.UTF-8")
 
+    android_userdata_keep_gib = installer_android_userdata_keep_gib()
+    command = [
+        str(installer),
+        "--create-from-userdata",
+        "--userdata-keep-gib",
+        android_userdata_keep_gib,
+        "--yes",
+    ]
+
     emit_event(event="progress", progress=2, message="Starting the internal storage install.", output="")
     try:
         proc = subprocess.Popen(
-            [str(installer)],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -516,11 +666,8 @@ def install_internal_stream_json():
     except OSError as exc:
         emit_json(False, f"Could not start the internal storage install: {exc}", code=1)
 
-    try:
-        proc.stdin.write("INSTALL THORCH\n")
+    if proc.stdin is not None:
         proc.stdin.close()
-    except (BrokenPipeError, OSError, AttributeError):
-        pass
 
     phase = "start"
     progress = 2
@@ -569,7 +716,7 @@ def install_internal_stream_json():
     rc = proc.wait()
     output = "\n".join(output_lines)
     if rc == 0:
-        update_phase("internal-install-complete-remove-sd", done=False)
+        reset_state_files()
         emit_json(
             True,
             "Thorch has been copied to internal storage. Remove the SD card, then reboot.",
@@ -587,10 +734,19 @@ def expand_sd_json():
     rc, output = run_capture(["/usr/bin/thorch-expand-root", "--yes"])
     if rc == 0:
         state = read_state()
+        state["sdExpanded"] = True
+        post_expand_action = state.pop("postExpandAction", "")
+        if post_expand_action == "install-internal":
+            state["phase"] = "internal-install-ready"
+            write_state(state, done=False)
+            emit_json(True, "The SD card is ready. Installing to internal storage next.", output=output, nextAction="install-internal")
         if state.get("installWaydroid") and not state.get("waydroidSetupDone"):
-            update_phase("waydroid-setup-ready", done=False)
+            state["phase"] = "waydroid-setup-ready"
+            write_state(state, done=False)
         elif state:
-            update_phase("complete", done=True)
+            state["phase"] = "complete"
+            state["completedAt"] = utc_timestamp()
+            write_state(state, done=True)
         emit_json(True, "The SD card is ready to use its full space.", output=output)
     emit_json(False, "Using the full SD card failed.", code=rc or 1, output=output)
 
@@ -607,12 +763,28 @@ def mark_waydroid_json():
 
 def finish_json():
     require_root()
+    state = read_state()
+    if state.get("sdExpanded") is not True and booted_from_thorch_sd_root():
+        if not pathlib.Path("/usr/bin/thorch-expand-root").exists():
+            emit_json(False, "SD card expansion is not available on this system.", code=1)
+        rc, output = run_capture(["/usr/bin/thorch-expand-root", "--yes"])
+        if rc != 0:
+            emit_json(False, "Using the full SD card failed.", code=rc or 1, output=output)
+        state = read_state()
+        state["sdExpanded"] = True
+        write_state(state, done=False)
     update_phase("complete", done=True)
     emit_json(True, "Setup is complete. Reboot when you're ready to start Thorch.")
 
 
+def reset_json():
+    require_root()
+    reset_state_files()
+    emit_json(True, "First boot setup has been reset.")
+
+
 def usage():
-    print("usage: thorch-firstbootctl apply-json|wifi-scan-json|wifi-connect-json|install-internal-json|install-internal-stream-json|expand-sd-json|mark-waydroid-json|finish-json", file=sys.stderr)
+    print("usage: thorch-firstbootctl apply-json|wifi-scan-json|wifi-connect-json|install-internal-json|install-internal-stream-json|expand-sd-json|mark-waydroid-json|finish-json|reset-json", file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -640,6 +812,9 @@ def main():
         return 0
     if len(sys.argv) == 2 and sys.argv[1] == "finish-json":
         finish_json()
+        return 0
+    if len(sys.argv) == 2 and sys.argv[1] == "reset-json":
+        reset_json()
         return 0
     usage()
 

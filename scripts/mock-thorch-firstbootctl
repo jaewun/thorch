@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 STATE_FILE = pathlib.Path(os.environ.get("THORCH_FIRSTBOOT_STATE_FILE", ".mock/firstboot/state.json"))
 DONE_FILE = pathlib.Path(os.environ.get("THORCH_FIRSTBOOT_DONE_FILE", ".mock/firstboot/done"))
+BOOT_ROLE = os.environ.get("THORCH_FIRSTBOOT_BOOT_ROLE", "sd")
 
 
 def now():
@@ -29,6 +30,17 @@ def read_state():
         return {}
 
 
+def android_userdata_keep_gib(payload):
+    value = payload.get("androidUserdataKeepGib", 32)
+    if isinstance(value, bool):
+        return 32
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return 32
+    return min(512, max(1, value))
+
+
 def write_state(state, done=False):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     state["updatedAt"] = now()
@@ -37,6 +49,14 @@ def write_state(state, done=False):
         DONE_FILE.write_text(state.get("completedAt", state["updatedAt"]) + "\n", encoding="utf-8")
     elif DONE_FILE.exists():
         DONE_FILE.unlink()
+
+
+def reset_state_files():
+    for path in (DONE_FILE, STATE_FILE):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def emit(ok, message, code=0, **extra):
@@ -69,8 +89,18 @@ def apply_json():
         "theme": payload.get("theme", "thorch-oled"),
         "installChoice": install_choice,
         "internalDataLossAccepted": bool(payload.get("internalDataLossAccepted")),
+        "androidUserdataKeepGib": android_userdata_keep_gib(payload),
         "installWaydroid": bool(payload.get("installWaydroid")),
     }
+    if BOOT_ROLE == "sd":
+        state["phase"] = "expand-sd-ready"
+        if install_choice == "install-internal":
+            state["postExpandAction"] = "install-internal"
+            write_state(state, done=False)
+            emit(True, "Mock: choices saved. The SD card will expand before installing to internal storage.", nextAction="expand-sd")
+        write_state(state, done=False)
+        emit(True, "Mock: setup saved. The SD card will expand next.", nextAction="expand-sd")
+
     if install_choice == "install-internal":
         state["phase"] = "internal-install-ready"
         write_state(state, done=False)
@@ -105,8 +135,14 @@ def wifi_connect_json():
 
 
 def install_internal_stream_json():
+    state = read_state()
+    keep_gib = state.get("androidUserdataKeepGib", 32)
     phases = [
-        (2, "Starting the internal storage install.", "Mock target: /dev/mockboot and /dev/mockroot"),
+        (2, "Starting the internal storage install.", f"Mock target: /dev/mockboot and /dev/mockroot\nAndroid userdata kept at {keep_gib} GiB"),
+        (3, "Creating an internal Thorch target.", f"Mock Android userdata kept at {keep_gib} GiB"),
+        (4, "Resizing Android userdata.", f"Mock userdata -> {keep_gib} GiB"),
+        (5, "Creating the internal boot partition.", "Mock ROCKNIX boot partition"),
+        (6, "Creating the internal root partition.", "Mock Thorch root partition"),
         (8, "Preparing internal storage.", "mkfs.vfat /dev/mockboot\nmkfs.ext4 /dev/mockroot"),
         (18, "Copying Thorch to internal storage.", "rsync / /mnt/thorch-internal"),
         (34, "Copying Thorch to internal storage. 30%.", "Copied 3.2 GiB of mock root."),
@@ -121,26 +157,30 @@ def install_internal_stream_json():
         emit_progress(progress, message, output)
         time.sleep(0.35)
 
-    state = read_state()
     state.update({
         "phase": "internal-install-complete-remove-sd",
         "installChoice": "install-internal",
         "internalDataLossAccepted": True,
+        "androidUserdataKeepGib": keep_gib,
     })
     state.pop("completedAt", None)
-    write_state(state, done=False)
+    reset_state_files()
     emit(True, "Mock: Thorch has been copied to internal storage. Remove the SD card, then reboot.", progress=100, output="Mock install finished cleanly.")
 
 
 def install_internal_json():
-    state = read_state()
-    state["phase"] = "internal-install-complete-remove-sd"
-    write_state(state, done=False)
+    reset_state_files()
     emit(True, "Mock: Thorch has been copied to internal storage.", output="Mock install finished cleanly.")
 
 
 def expand_sd_json():
     state = read_state()
+    state["sdExpanded"] = True
+    post_expand_action = state.pop("postExpandAction", "")
+    if post_expand_action == "install-internal":
+        state["phase"] = "internal-install-ready"
+        write_state(state, done=False)
+        emit(True, "Mock: the SD card is ready. Installing to internal storage next.", output="Mock growpart + resize2fs complete.", nextAction="install-internal")
     if state.get("installWaydroid") and not state.get("waydroidSetupDone"):
         state["phase"] = "waydroid-setup-ready"
         write_state(state, done=False)
@@ -168,6 +208,11 @@ def finish_json():
     emit(True, "Mock: setup is complete.")
 
 
+def reset_json():
+    reset_state_files()
+    emit(True, "Mock: first boot setup has been reset.")
+
+
 def main():
     if len(sys.argv) != 2:
         print("usage: mock-thorch-firstbootctl ACTION", file=sys.stderr)
@@ -181,6 +226,7 @@ def main():
         "expand-sd-json": expand_sd_json,
         "mark-waydroid-json": mark_waydroid_json,
         "finish-json": finish_json,
+        "reset-json": reset_json,
     }
     action = actions.get(sys.argv[1])
     if action is None:

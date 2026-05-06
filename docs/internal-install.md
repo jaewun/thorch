@@ -17,6 +17,22 @@ internal ROCKNIX/Thorch Linux target and ask for confirmation before formatting
 that target. It will not create new partitions or shrink Android userdata in the
 default flow.
 
+The first-boot internal install flow runs the installer in explicit
+create-if-needed mode after the user accepts the internal-storage warning. In
+that mode, the installer handles three internal-storage states:
+
+- **Untouched Android layout:** Android `userdata` is the final large partition.
+  Thorch shrinks/wipes `userdata` once, then creates ROCKNIX boot and Thorch
+  root partitions after it.
+- **Existing ROCKNIX/Thorch layout:** a ROCKNIX boot partition and a
+  THORCH_ROOT/armbi_root/STORAGE root partition are detected and reused.
+  Blank-but-labelled ROCKNIX boot partitions are accepted because the installer
+  formats the selected boot partition anyway.
+- **Already-resized but incomplete layout:** if `userdata` is already smaller
+  and there is enough post-userdata space, Thorch recreates that post-userdata
+  Linux area without shrinking `userdata` again. This covers interrupted or
+  manually nuked ROCKNIX/Thorch installs.
+
 Creating a target by shrinking Android `userdata` is an explicit advanced flow:
 
 ```bash
@@ -28,6 +44,9 @@ ROCKNIX-compatible boot partition, creates a Thorch root partition in the
 remaining space, and requires typed confirmations before repartitioning. The
 flow first asks for `SHRINK USERDATA`, then asks how much space Android userdata
 should keep, then requires `CREATE THORCH` before changing the partition table.
+For scripted recovery flows, `--userdata-keep-gib N|auto --yes` can be combined
+with `--create-from-userdata`; `auto` keeps up to 32 GiB for Android userdata,
+or less on small devices so at least 8 GiB remains for Thorch.
 
 Safety behavior:
 

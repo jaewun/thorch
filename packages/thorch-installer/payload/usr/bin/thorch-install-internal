@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat >&2 <<'EOF'
 usage: thorch-install-internal [--boot-device /dev/... --root-device /dev/...]
-       thorch-install-internal --create-from-userdata
+       thorch-install-internal --create-from-userdata [--userdata-keep-gib N|auto] [--yes]
 
 Installs the currently running Thorch SD system to internal Thor Linux storage.
 This formats the selected boot and root partitions, but never flashes ABL.
@@ -12,7 +12,8 @@ This formats the selected boot and root partitions, but never flashes ABL.
 Without device arguments, Thorch auto-detects an existing internal Linux install
 target using ROCKNIX/Thorch labels. It will not create partitions, shrink
 Android userdata, or wipe Android userdata unless --create-from-userdata is
-passed explicitly.
+passed explicitly. When --create-from-userdata is passed, an existing target is
+still preferred; Android userdata is only changed if no existing target is found.
 
 Required safety confirmation: type INSTALL THORCH when prompted.
 EOF
@@ -31,6 +32,8 @@ boot_device=""
 root_device=""
 target=/mnt/thorch-internal
 create_from_userdata=0
+userdata_keep_gib=""
+assume_yes=0
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -53,6 +56,15 @@ while [[ "$#" -gt 0 ]]; do
       create_from_userdata=1
       shift
       ;;
+    --userdata-keep-gib)
+      require_value "$1" "${2:-}"
+      userdata_keep_gib="$2"
+      shift 2
+      ;;
+    --yes)
+      assume_yes=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -68,6 +80,18 @@ done
 fail() {
   echo "error: $*" >&2
   exit 1
+}
+
+confirm_or_fail() {
+  local expected="$1" prompt="$2" confirmation
+  if [[ "${assume_yes}" -eq 1 ]]; then
+    echo "${prompt}${expected}"
+    return 0
+  fi
+
+  printf '%s' "${prompt}"
+  read -r confirmation
+  [[ "${confirmation}" == "${expected}" ]] || fail "confirmation did not match; aborting"
 }
 
 need() {
@@ -135,6 +159,30 @@ partition_partlabel() {
   lsblk -no PARTLABEL "$1" 2>/dev/null | head -n1 || true
 }
 
+partition_fstype() {
+  lsblk -no FSTYPE "$1" 2>/dev/null | awk 'NF {print $1; exit}' || true
+}
+
+partition_start() {
+  local dev="$1" real sys start
+  real="$(readlink -f "${dev}" 2>/dev/null || printf '%s\n' "${dev}")"
+  sys="/sys/class/block/$(basename "${real}")/start"
+  if [[ -r "${sys}" ]]; then
+    read -r start < "${sys}"
+  else
+    start="$(lsblk -no START "${dev}" 2>/dev/null | awk 'NF {print $1; exit}')"
+  fi
+  [[ "${start:-}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$(( start * 512 ))"
+}
+
+partition_end() {
+  local start size
+  start="$(partition_start "$1")" || return 1
+  size="$(blockdev --getsize64 "$1")" || return 1
+  printf '%s\n' "$(( start + size ))"
+}
+
 partition_node() {
   local disk="$1" num="$2"
   if [[ "${disk}" =~ (nvme|mmcblk|loop)[0-9] ]]; then
@@ -151,24 +199,144 @@ partprobe_wait() {
 }
 
 internal_userdata_disk() {
-  local current_base line disk count=0 found=""
+  local current_base name type disk count=0 found=""
   current_base="$(current_root_base)"
 
-  while IFS= read -r line; do
-    disk="/dev/$(base_block "${line}")"
+  while read -r name type; do
+    [[ "${type}" == "part" ]] || continue
+    [[ "$(partition_partlabel "${name}")" == "userdata" ]] || continue
+    disk="/dev/$(base_block "${name}")"
     [[ "$(basename "${disk}")" != "${current_base}" ]] || continue
     found="${disk}"
     count=$((count + 1))
-  done < <(lsblk -nrpo NAME,TYPE,PARTLABEL | awk '$2 == "part" && $3 == "userdata" {print $1}')
+  done < <(lsblk -nrpo NAME,TYPE)
 
   [[ "${count}" -eq 1 ]] || return 1
   printf '%s\n' "${found}"
 }
 
+partition_numbers() {
+  parted -m -s "$1" unit B print |
+    awk -F: '$1 ~ /^[0-9]+$/ {print $1}' |
+    sort -n
+}
+
+new_partition_number_since() {
+  local disk="$1" before="$2" num found="" count=0
+  while IFS= read -r num; do
+    [[ -n "${num}" ]] || continue
+    if ! grep -qxF "${num}" <<<"${before}"; then
+      found="${num}"
+      count=$((count + 1))
+    fi
+  done < <(partition_numbers "${disk}")
+
+  [[ "${count}" -eq 1 ]] || fail "could not identify the new partition number on ${disk}"
+  printf '%s\n' "${found}"
+}
+
+userdata_bounds() {
+  local disk="$1" ud_line ud_start_b ud_end_b ud_start ud_end
+  local -a ud_matches=()
+  mapfile -t ud_matches < <(parted -m -s "${disk}" unit B print | grep ':userdata:')
+  [[ "${#ud_matches[@]}" -eq 1 ]] || fail "could not uniquely find Android userdata on ${disk}"
+  ud_line="${ud_matches[0]}"
+  IFS=':' read -r ud_num ud_start_b ud_end_b _ <<< "${ud_line}"
+  ud_start="${ud_start_b%B}"
+  ud_end="${ud_end_b%B}"
+  ud_node="$(partition_node "${disk}" "${ud_num}")"
+  ud_start_mib=$(( (ud_start + 1048575) / 1048576 ))
+  ud_end_mib=$(( ud_end / 1048576 ))
+}
+
+disk_end_mib() {
+  local disk="$1" size_b
+  size_b="$(blockdev --getsize64 "${disk}")"
+  printf '%s\n' "$(( size_b / 1048576 ))"
+}
+
+is_partition_after_userdata() {
+  local dev="$1" ud_end_bytes="$2" start
+  start="$(partition_start "${dev}")" || return 1
+  (( start >= ud_end_bytes ))
+}
+
+delete_partitions_after_userdata() {
+  local disk="$1" ud_end_bytes="$2" name num
+  while read -r name; do
+    [[ -n "${name}" ]] || continue
+    is_partition_after_userdata "${name}" "${ud_end_bytes}" || continue
+    require_unmounted "${name}"
+    num="${name##*[!0-9]}"
+    [[ -n "${num}" ]] || fail "could not parse partition number from ${name}"
+    echo "removing stale post-userdata partition ${name}"
+    parted -s "${disk}" rm "${num}"
+  done < <(lsblk -nrpo NAME,TYPE "${disk}" | awk '$2 == "part" {print $1}' | sort -Vr)
+  partprobe_wait "${disk}"
+}
+
+create_target_in_free_space_after_userdata() {
+  local disk="$1" boot_start_mib="$2" disk_mib="$3" before_nums boot_num root_num boot_end_mib
+  boot_end_mib=$(( boot_start_mib + 2048 ))
+  (( disk_mib - boot_end_mib >= 8192 )) || fail "not enough free space after Android userdata for Thorch"
+
+  echo ":: thorch-install phase=create-boot"
+  before_nums="$(partition_numbers "${disk}")"
+  parted -a optimal -s "${disk}" mkpart primary fat32 "${boot_start_mib}MiB" "${boot_end_mib}MiB"
+  boot_num="$(new_partition_number_since "${disk}" "${before_nums}")"
+  parted -s "${disk}" name "${boot_num}" ROCKNIX
+  parted -s "${disk}" set "${boot_num}" msftdata on || true
+  parted -s "${disk}" set "${boot_num}" boot on || true
+
+  echo ":: thorch-install phase=create-root"
+  before_nums="$(partition_numbers "${disk}")"
+  parted -a optimal -s "${disk}" mkpart primary ext4 "${boot_end_mib}MiB" 100%
+  root_num="$(new_partition_number_since "${disk}" "${before_nums}")"
+  parted -s "${disk}" name "${root_num}" STORAGE
+  partprobe_wait "${disk}"
+
+  boot_device="$(partition_node "${disk}" "${boot_num}")"
+  root_device="$(partition_node "${disk}" "${root_num}")"
+  [[ -b "${boot_device}" && -b "${root_device}" ]] || fail "new Thorch partitions did not appear"
+}
+
+create_target_by_reusing_resized_userdata() {
+  local disk="$1" ud_num ud_node ud_start_mib ud_end_mib disk_mib free_mib
+  userdata_bounds "${disk}"
+  require_unmounted "${ud_node}"
+  disk_mib="$(disk_end_mib "${disk}")"
+  free_mib=$(( disk_mib - ud_end_mib ))
+  (( free_mib >= 10240 )) || return 1
+
+  cat <<EOF
+No complete internal Thorch/ROCKNIX target was found, but Android userdata is
+already smaller than the disk and leaves ${free_mib} MiB for internal Linux.
+
+Thorch will reuse that post-userdata area and will not shrink Android userdata.
+Any stale partitions after userdata will be recreated.
+
+Thorch will create an internal Linux target without changing Android userdata:
+  ROCKNIX boot: 2 GiB after userdata
+  Thorch root:  remaining free space
+EOF
+
+  confirm_or_fail "CREATE THORCH" "Type CREATE THORCH to continue: "
+  delete_partitions_after_userdata "${disk}" "$(( ud_end_mib * 1048576 ))"
+  create_target_in_free_space_after_userdata "${disk}" "${ud_end_mib}" "${disk_mib}"
+}
+
 create_target_by_shrinking_userdata() {
-  local disk="$1" confirm ud_line ud_num ud_start_b ud_end_b ud_start ud_end
-  local ud_start_mib ud_end_mib orig_gib min_gib reserve_gib max_gib keep_gib
-  local new_ud_end_mib boot_num root_num boot_start_mib boot_end_mib ud_node before_nums
+  local disk="$1" confirm ud_num ud_node ud_start_mib ud_end_mib
+  local orig_gib min_gib reserve_gib max_gib keep_gib new_ud_end_mib disk_mib before_nums
+
+  userdata_bounds "${disk}"
+  require_unmounted "${ud_node}"
+  disk_mib="$(disk_end_mib "${disk}")"
+
+  if (( disk_mib - ud_end_mib >= 10240 )); then
+    create_target_by_reusing_resized_userdata "${disk}"
+    return 0
+  fi
 
   cat <<EOF
 No existing internal Thorch/ROCKNIX Linux install target was found.
@@ -184,21 +352,14 @@ This matches the ROCKNIX install-to-internal flow:
   - ABL and Android bootloader partitions are not flashed.
 EOF
 
-  printf 'Type SHRINK USERDATA to continue, or anything else to abort: '
-  read -r confirm
-  [[ "${confirm}" == "SHRINK USERDATA" ]] || exit 0
+  if [[ "${assume_yes}" -eq 1 ]]; then
+    echo "Type SHRINK USERDATA to continue, or anything else to abort: SHRINK USERDATA"
+  else
+    printf 'Type SHRINK USERDATA to continue, or anything else to abort: '
+    read -r confirm
+    [[ "${confirm}" == "SHRINK USERDATA" ]] || exit 0
+  fi
 
-  mapfile -t ud_matches < <(parted -m -s "${disk}" unit B print | grep ':userdata:')
-  [[ "${#ud_matches[@]}" -eq 1 ]] || fail "could not uniquely find Android userdata on ${disk}"
-  ud_line="${ud_matches[0]}"
-  IFS=':' read -r ud_num ud_start_b ud_end_b _ <<< "${ud_line}"
-  ud_start="${ud_start_b%B}"
-  ud_end="${ud_end_b%B}"
-  ud_node="$(partition_node "${disk}" "${ud_num}")"
-  require_unmounted "${ud_node}"
-
-  ud_start_mib=$(( (ud_start + 1048575) / 1048576 ))
-  ud_end_mib=$(( ud_end / 1048576 ))
   orig_gib=$(( (ud_end_mib - ud_start_mib) / 1024 ))
   min_gib=1
   reserve_gib=8
@@ -208,18 +369,28 @@ EOF
   echo "Current Android userdata size: ${orig_gib} GiB"
   echo "Choose how much space Android userdata should keep after it is wiped."
   echo "Allowed range: ${min_gib} GiB to ${max_gib} GiB"
-  while :; do
-    printf 'Android userdata size in GiB: '
-    read -r keep_gib
-    if [[ "${keep_gib}" =~ ^[0-9]+$ ]] && (( keep_gib >= min_gib && keep_gib <= max_gib )); then
-      break
-    fi
-    echo "Please enter a whole number between ${min_gib} and ${max_gib}."
-  done
+  if [[ "${userdata_keep_gib}" == "auto" || ( -z "${userdata_keep_gib}" && "${assume_yes}" -eq 1 ) ]]; then
+    keep_gib=32
+    (( keep_gib <= max_gib )) || keep_gib="${max_gib}"
+    (( keep_gib >= min_gib )) || keep_gib="${min_gib}"
+    echo "Android userdata size in GiB: ${keep_gib}"
+  elif [[ -n "${userdata_keep_gib}" ]]; then
+    [[ "${userdata_keep_gib}" =~ ^[0-9]+$ ]] || fail "--userdata-keep-gib must be a whole number or auto"
+    keep_gib="${userdata_keep_gib}"
+    (( keep_gib >= min_gib && keep_gib <= max_gib )) || fail "--userdata-keep-gib must be between ${min_gib} and ${max_gib}"
+    echo "Android userdata size in GiB: ${keep_gib}"
+  else
+    while :; do
+      printf 'Android userdata size in GiB: '
+      read -r keep_gib
+      if [[ "${keep_gib}" =~ ^[0-9]+$ ]] && (( keep_gib >= min_gib && keep_gib <= max_gib )); then
+        break
+      fi
+      echo "Please enter a whole number between ${min_gib} and ${max_gib}."
+    done
+  fi
 
   new_ud_end_mib=$(( ud_start_mib + keep_gib * 1024 ))
-  boot_start_mib="${new_ud_end_mib}"
-  boot_end_mib=$(( boot_start_mib + 2048 ))
 
   cat <<EOF
 
@@ -228,31 +399,10 @@ Thorch will repartition ${disk}:
   ROCKNIX boot:     new 2 GiB partition after userdata
   Thorch root:       new partition using remaining space
 
-Type CREATE THORCH to continue: 
 EOF
-  read -r confirm
-  [[ "${confirm}" == "CREATE THORCH" ]] || fail "confirmation did not match; aborting"
+  confirm_or_fail "CREATE THORCH" "Type CREATE THORCH to continue: "
 
-  partition_numbers() {
-    parted -m -s "$1" unit B print |
-      awk -F: '$1 ~ /^[0-9]+$/ {print $1}' |
-      sort -n
-  }
-
-  new_partition_number_since() {
-    local disk="$1" before="$2" num found="" count=0
-    while IFS= read -r num; do
-      [[ -n "${num}" ]] || continue
-      if ! grep -qxF "${num}" <<<"${before}"; then
-        found="${num}"
-        count=$((count + 1))
-      fi
-    done < <(partition_numbers "${disk}")
-
-    [[ "${count}" -eq 1 ]] || fail "could not identify the new partition number on ${disk}"
-    printf '%s\n' "${found}"
-  }
-
+  echo ":: thorch-install phase=resize-userdata"
   parted -s "${disk}" rm "${ud_num}"
   before_nums="$(partition_numbers "${disk}")"
   parted -a optimal -s "${disk}" mkpart primary ext4 "${ud_start_mib}MiB" "${new_ud_end_mib}MiB"
@@ -263,22 +413,7 @@ EOF
   [[ -b "${ud_node}" ]] || fail "recreated userdata partition did not appear: ${ud_node}"
   dd if=/dev/zero of="${ud_node}" bs=1M count=8 status=none
 
-  before_nums="$(partition_numbers "${disk}")"
-  parted -a optimal -s "${disk}" mkpart primary fat32 "${boot_start_mib}MiB" "${boot_end_mib}MiB"
-  boot_num="$(new_partition_number_since "${disk}" "${before_nums}")"
-  parted -s "${disk}" name "${boot_num}" ROCKNIX
-  parted -s "${disk}" set "${boot_num}" msftdata on || true
-  parted -s "${disk}" set "${boot_num}" boot on || true
-
-  before_nums="$(partition_numbers "${disk}")"
-  parted -a optimal -s "${disk}" mkpart primary ext4 "${boot_end_mib}MiB" 100%
-  root_num="$(new_partition_number_since "${disk}" "${before_nums}")"
-  parted -s "${disk}" name "${root_num}" STORAGE
-  partprobe_wait "${disk}"
-
-  boot_device="$(partition_node "${disk}" "${boot_num}")"
-  root_device="$(partition_node "${disk}" "${root_num}")"
-  [[ -b "${boot_device}" && -b "${root_device}" ]] || fail "new Thorch partitions did not appear"
+  create_target_in_free_space_after_userdata "${disk}" "${new_ud_end_mib}" "${disk_mib}"
 }
 
 find_thorch_internal_target() {
@@ -289,12 +424,15 @@ find_thorch_internal_target() {
 
   current_base="$(current_root_base)"
 
-  while read -r name type fstype label partlabel; do
+  while read -r name type; do
     [[ "${type}" == "part" ]] || continue
     base="$(base_block "${name}")"
     [[ "${base}" != "${current_base}" ]] || continue
+    fstype="$(partition_fstype "${name}")"
+    label="$(partition_label "${name}")"
+    partlabel="$(partition_partlabel "${name}")"
 
-    if [[ "${fstype}" == "vfat" && ( "${label}" == "ROCKNIX" || "${partlabel}" == "ROCKNIX" ) ]]; then
+    if [[ ( "${fstype}" == "vfat" || -z "${fstype}" ) && ( "${label}" == "ROCKNIX" || "${partlabel}" == "ROCKNIX" ) ]]; then
       reject_android_partition "${name}"
       require_unmounted "${name}"
       boot_candidates+=("${name}")
@@ -305,7 +443,7 @@ find_thorch_internal_target() {
       require_unmounted "${name}"
       root_candidates+=("${name}")
     fi
-  done < <(lsblk -nrpo NAME,TYPE,FSTYPE,LABEL,PARTLABEL)
+  done < <(lsblk -nrpo NAME,TYPE)
 
   for boot in "${boot_candidates[@]}"; do
     for root in "${root_candidates[@]}"; do
@@ -321,11 +459,36 @@ find_thorch_internal_target() {
   fi
 
   if [[ "${pair_count}" -gt 1 ]]; then
+    local chosen_boot="" chosen_root="" chosen_count=0 boot_end root_start
+    for boot in "${boot_candidates[@]}"; do
+      boot_end="$(partition_end "${boot}")" || continue
+      for root in "${root_candidates[@]}"; do
+        [[ "$(base_block "${boot}")" == "$(base_block "${root}")" ]] || continue
+        root_start="$(partition_start "${root}")" || continue
+        if [[ -n "${boot_end}" && -n "${root_start}" ]] && (( boot_end == root_start )); then
+          chosen_boot="${boot}"
+          chosen_root="${root}"
+          chosen_count=$((chosen_count + 1))
+        fi
+      done
+    done
+    if [[ "${chosen_count}" -eq 1 ]]; then
+      boot_device="${chosen_boot}"
+      root_device="${chosen_root}"
+      return 0
+    fi
     fail "found multiple possible internal Thorch targets; rerun with --boot-device and --root-device"
   fi
 
   local disk
+  if [[ "${create_from_userdata}" -eq 1 ]] && (( ${#boot_candidates[@]} > 0 || ${#root_candidates[@]} > 0 )) && disk="$(internal_userdata_disk)"; then
+    echo ":: thorch-install phase=create-target"
+    create_target_by_reusing_resized_userdata "${disk}" || fail "found a partial internal Thorch target but no reusable post-userdata space"
+    return 0
+  fi
+
   if [[ "${create_from_userdata}" -eq 1 ]] && disk="$(internal_userdata_disk)"; then
+    echo ":: thorch-install phase=create-target"
     create_target_by_shrinking_userdata "${disk}"
     return 0
   fi
@@ -440,9 +603,7 @@ Thorch will install the running system to internal storage:
 This formats both selected partitions. It will not flash ABL.
 EOF
 
-printf 'Type INSTALL THORCH to continue: '
-read -r confirmation
-[[ "${confirmation}" == "INSTALL THORCH" ]] || fail "confirmation did not match; aborting"
+confirm_or_fail "INSTALL THORCH" "Type INSTALL THORCH to continue: "
 
 backup_existing_boot "${boot_device}"
 

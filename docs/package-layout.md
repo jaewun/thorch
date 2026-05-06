@@ -46,9 +46,9 @@ scans/connects Wi-Fi through NetworkManager, creates or updates the selected
 user, applies password policy, writes the chosen KDE theme, stages the selected
 Thorch session through `thorch-sessionctl`, and records completion under
 `/var/lib/thorch/firstboot`. The QML flow exposes a Skip action from every page,
-runs automatic existing-target SD expansion/internal-install actions in-window,
-and can call the gaming stack installer command when Steam mode is selected;
-destructive Android userdata shrinking remains a terminal-only installer path.
+runs automatic SD expansion and create-if-needed internal-install actions
+in-window, and can call the gaming stack installer command when Steam mode is
+selected.
 
 `thorch-installer` provides `thorch-install-internal` and
 `thorch-expand-root` for firstboot and CLI recovery flows. The root expander
