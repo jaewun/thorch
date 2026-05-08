@@ -204,8 +204,8 @@ function applySteamMode(window) {
         console.info("thorch-steamos-mode: could not set fullscreen: " + e);
     }
     try {
-        window.skipTaskbar = true;
-        window.skipSwitcher = true;
+        window.skipTaskbar = false;
+        window.skipSwitcher = false;
     } catch (e) {
     }
 }
@@ -576,8 +576,8 @@ function moveWindow(window, output) {
         } catch (e) {
         }
         try {
-            window.skipTaskbar = true;
-            window.skipSwitcher = true;
+            window.skipTaskbar = false;
+            window.skipSwitcher = false;
         } catch (e) {
         }
     } else {
