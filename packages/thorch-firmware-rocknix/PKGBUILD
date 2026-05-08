@@ -2,7 +2,7 @@
 
 pkgname=thorch-firmware-rocknix
 pkgver=1
-pkgrel=5
+pkgrel=6
 pkgdesc='Public ROCKNIX SM8550 firmware and runtime artifacts packaged for Thorch'
 arch=(aarch64)
 url='https://github.com/ROCKNIX/distribution'
@@ -30,6 +30,9 @@ EOF
   cp -a "${_firmware_dir}/." "${pkgdir}/usr/lib/firmware/"
   if [[ -d "${_rocknix_kernel_dir}/usr/lib/firmware" ]]; then
     cp -a "${_rocknix_kernel_dir}/usr/lib/firmware/." "${pkgdir}/usr/lib/firmware/"
+  fi
+  if [[ ! -e "${pkgdir}/usr/lib/firmware/qcom/sm8550/AYN-Thor-tplg.bin" ]]; then
+    ln -s AYN-Odin2-tplg.bin "${pkgdir}/usr/lib/firmware/qcom/sm8550/AYN-Thor-tplg.bin"
   fi
   for firmware in \
     qcom/a740_sqe.fw \
