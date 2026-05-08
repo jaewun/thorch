@@ -1,0 +1,15 @@
+[Unit]
+Description=Thorch compressed RAM swap
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=swap.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/thorch-zram-swap start
+ExecStop=/usr/bin/thorch-zram-swap stop
+
+[Install]
+WantedBy=swap.target

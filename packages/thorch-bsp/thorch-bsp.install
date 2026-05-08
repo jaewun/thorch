@@ -3,6 +3,7 @@ post_install() {
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service >/dev/null 2>&1 || true
     systemctl enable --now thorch-inputd.service thorch-powerd.service >/dev/null 2>&1 || true
+    systemctl enable --now thorch-zram-swap.service >/dev/null 2>&1 || true
   fi
 }
 
@@ -11,5 +12,6 @@ post_upgrade() {
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl disable --now thorch-hwcontrold.service thorch-powerkeyd.service >/dev/null 2>&1 || true
     systemctl enable --now thorch-inputd.service thorch-powerd.service >/dev/null 2>&1 || true
+    systemctl enable --now thorch-zram-swap.service >/dev/null 2>&1 || true
   fi
 }

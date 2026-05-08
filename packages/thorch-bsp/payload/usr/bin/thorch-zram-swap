@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+device="${THORCH_ZRAM_DEVICE:-/dev/zram0}"
+size="${THORCH_ZRAM_SIZE:-12G}"
+algorithm="${THORCH_ZRAM_ALGORITHM:-lz4}"
+priority="${THORCH_ZRAM_PRIORITY:-100}"
+
+usage() {
+  cat <<'EOF'
+Usage: thorch-zram-swap start|stop|status
+
+Environment:
+  THORCH_ZRAM_DEVICE     zram block device to use (default: /dev/zram0)
+  THORCH_ZRAM_SIZE       uncompressed swap size (default: 12G)
+  THORCH_ZRAM_ALGORITHM  compression algorithm (default: lz4)
+  THORCH_ZRAM_PRIORITY   swap priority (default: 100)
+EOF
+}
+
+is_swapped() {
+  swapon --noheadings --show=NAME | grep -Fxq "${device}"
+}
+
+start_zram() {
+  if is_swapped; then
+    zramctl "${device}"
+    return 0
+  fi
+
+  modprobe zram num_devices=1
+  if [[ ! -b "${device}" ]]; then
+    device="$(zramctl --find)"
+  fi
+
+  if zramctl "${device}" >/dev/null 2>&1; then
+    zramctl --reset "${device}"
+  fi
+
+  device="$(zramctl --find --algorithm "${algorithm}" --size "${size}")"
+  mkswap -U clear "${device}" >/dev/null
+  swapon --priority "${priority}" "${device}"
+  zramctl "${device}"
+}
+
+stop_zram() {
+  if is_swapped; then
+    swapoff "${device}"
+  fi
+
+  if zramctl "${device}" >/dev/null 2>&1; then
+    zramctl --reset "${device}"
+  fi
+}
+
+case "${1:-}" in
+  start)
+    start_zram
+    ;;
+  stop)
+    stop_zram
+    ;;
+  status)
+    zramctl "${device}" || true
+    swapon --show
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

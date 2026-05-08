@@ -62,6 +62,7 @@ package() {
   chmod 755 "${pkgdir}/usr/bin/thorch-quicksetting-toggle"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-gadget"
   chmod 755 "${pkgdir}/usr/bin/thorch-usb-network"
+  chmod 755 "${pkgdir}/usr/bin/thorch-zram-swap"
   chmod 755 "${pkgdir}/usr/lib/thorch/plasma-mobile-action-drawer-mode"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-firmware"
   chmod 755 "${pkgdir}/usr/lib/initcpio/install/thorch-sd-prefer"
