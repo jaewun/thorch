@@ -1,11 +1,12 @@
-[![Join the Thorch Discord](docs/assets/thorch-discord-banner.png)](https://discord.gg/vbmkGaCxdC)
-
 # Thorch
 
 Thorch is an experimental Arch Linux ARM image for the AYN Thor, built on top of
 public ROCKNIX work. It syncs ROCKNIX's SM8550 kernel recipe, patch stack, Thor
 DTS overlays, firmware, runtime graphics pieces, FEX assets, device
 configuration, handheld package patch sets, and ABL-compatible boot layout.
+
+Join the [Thorch Discord](https://discord.gg/vbmkGaCxdC) to follow development,
+test builds, or help inform future development.
 
 What Thorch adds is an Arch root filesystem, a ROCKNIX-derived Thor kernel with
 Thorch's BinderFS/Waydroid config fragment, a Thorch initramfs repacked into the
