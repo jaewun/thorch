@@ -386,7 +386,7 @@ run_chroot() {
     --pipe \
     --register=no \
     --directory="${build_root}" \
-    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash -lc "$*"
+    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"
 }
 
 remove_stock_firmware() {

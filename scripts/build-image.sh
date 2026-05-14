@@ -125,7 +125,7 @@ run_rootfs() {
     --pipe \
     --register=no \
     --directory="${rootfs_dir}" \
-    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash -lc "$*"
+    /usr/bin/qemu-aarch64-static /usr/bin/env TERM=dumb SYSTEMD_COLORS=0 /bin/bash --noprofile --norc -c "$*"
 }
 
 run_rootfs_cmd() {
