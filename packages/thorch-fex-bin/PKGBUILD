@@ -1,7 +1,7 @@
 # Maintainer: Thorch contributors
 
 pkgname=thorch-fex-bin
-pkgver=2604
+pkgver=2605
 pkgrel=1
 pkgdesc='ROCKNIX-imported FEX binary runtime for Thorch on AArch64'
 arch=(aarch64)
