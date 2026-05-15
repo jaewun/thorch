@@ -9,6 +9,8 @@ kdialog_cmd="${THORCH_HARDWARE_KDIALOG:-kdialog}"
 legacy_dir="${THORCH_HARDWARE_LEGACY_DIR:-/etc/thorch}"
 
 cpu_boost="1"
+cpu_governor="performance"
+gpu_governor="performance"
 fan_profile="moderate"
 fan_sensor_mode="max"
 rgb_mode="battery"
@@ -24,6 +26,9 @@ usage:
   thorch-hardwarectl status-json
   thorch-hardwarectl migrate
   thorch-hardwarectl set cpu-boost on|off
+  thorch-hardwarectl set cpu-governor performance|schedutil|ondemand|powersave|auto
+  thorch-hardwarectl set gpu-governor performance|simple_ondemand|powersave|userspace|auto
+  thorch-hardwarectl set governors CPU_GOVERNOR GPU_GOVERNOR
   thorch-hardwarectl set fan-profile quiet|moderate|aggressive|custom
   thorch-hardwarectl set fan-sensor-mode max|average
   thorch-hardwarectl set fan-state PROFILE SENSOR_MODE
@@ -58,6 +63,8 @@ load_config() {
   fi
 
   cpu_boost="${THORCH_CPU_BOOST:-${cpu_boost}}"
+  cpu_governor="${THORCH_CPU_GOVERNOR:-${cpu_governor}}"
+  gpu_governor="${THORCH_GPU_GOVERNOR:-${gpu_governor}}"
   fan_profile="${THORCH_FAN_PROFILE:-${fan_profile}}"
   fan_sensor_mode="${THORCH_FAN_SENSOR_MODE:-${fan_sensor_mode}}"
   rgb_mode="${THORCH_RGB_MODE:-${rgb_mode}}"
@@ -121,6 +128,8 @@ config = Path(sys.argv[1])
 legacy_paths = [Path(value) for value in sys.argv[2:]]
 allowed = {
     "THORCH_CPU_BOOST",
+    "THORCH_CPU_GOVERNOR",
+    "THORCH_GPU_GOVERNOR",
     "THORCH_FAN_PROFILE",
     "THORCH_FAN_POLL_SECONDS",
     "THORCH_FAN_WAIT_SECONDS",
@@ -210,8 +219,19 @@ require_root_for_set() {
   exec sudo /usr/bin/thorch-hardwarectl "$@"
 }
 
+apply_hw_defaults() {
+  THORCH_CPU_BOOST="${cpu_boost}" \
+  THORCH_CPU_GOVERNOR="${cpu_governor}" \
+  THORCH_GPU_GOVERNOR="${gpu_governor}" \
+    "${hw_defaults_cmd}" apply
+}
+
 apply_cpu_boost() {
-  "${hw_defaults_cmd}" apply
+  apply_hw_defaults
+}
+
+apply_governors() {
+  apply_hw_defaults
 }
 
 apply_fan_profile() {
@@ -235,6 +255,8 @@ apply_rgb_mode() {
 print_status() {
   load_config
   printf 'cpu_boost: %s\n' "${cpu_boost}"
+  printf 'cpu_governor: %s\n' "${cpu_governor}"
+  printf 'gpu_governor: %s\n' "${gpu_governor}"
   printf 'fan_profile: %s\n' "${fan_profile}"
   printf 'fan_sensor_mode: %s\n' "${fan_sensor_mode}"
   printf 'rgb_mode: %s\n' "${rgb_mode}"
@@ -244,24 +266,26 @@ print_status() {
 
 print_status_json() {
   load_config
-  python - "${cpu_boost}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
+  python - "${cpu_boost}" "${cpu_governor}" "${gpu_governor}" "${fan_profile}" "${fan_sensor_mode}" "${rgb_mode}" "${rgb_brightness}" "${rgb_static_r}" "${rgb_static_g}" "${rgb_static_b}" <<'PY'
 import json
 import sys
 
-r = int(sys.argv[6])
-g = int(sys.argv[7])
-b = int(sys.argv[8])
-fan_profile = sys.argv[2]
+r = int(sys.argv[8])
+g = int(sys.argv[9])
+b = int(sys.argv[10])
+fan_profile = sys.argv[4]
 
 print(json.dumps({
     "cpu_boost": sys.argv[1],
     "cpu_boost_enabled": sys.argv[1] == "1",
-    "fan_profile": sys.argv[2],
+    "cpu_governor": sys.argv[2],
+    "gpu_governor": sys.argv[3],
+    "fan_profile": sys.argv[4],
     "fan_profile_effective": "moderate" if fan_profile == "auto" else fan_profile,
-    "fan_sensor_mode": sys.argv[3],
-    "rgb_mode": sys.argv[4],
-    "rgb_enabled": sys.argv[4] != "off",
-    "rgb_brightness": int(sys.argv[5]),
+    "fan_sensor_mode": sys.argv[5],
+    "rgb_mode": sys.argv[6],
+    "rgb_enabled": sys.argv[6] != "off",
+    "rgb_brightness": int(sys.argv[7]),
     "rgb_static_r": r,
     "rgb_static_g": g,
     "rgb_static_b": b,
@@ -280,7 +304,41 @@ set_cpu_boost() {
     *) die "cpu-boost must be on or off" ;;
   esac
   write_config_value THORCH_CPU_BOOST "${value}"
+  load_config
+  cpu_boost="${value}"
   apply_cpu_boost
+}
+
+set_governors() {
+  local cpu_value="$1" gpu_value="$2"
+
+  case "${cpu_value}" in
+    performance|schedutil|ondemand|powersave|auto) ;;
+    *) die "cpu-governor must be performance, schedutil, ondemand, powersave, or auto" ;;
+  esac
+  case "${gpu_value}" in
+    performance|simple_ondemand|powersave|userspace|auto) ;;
+    *) die "gpu-governor must be performance, simple_ondemand, powersave, userspace, or auto" ;;
+  esac
+
+  write_config_value THORCH_CPU_GOVERNOR "${cpu_value}"
+  write_config_value THORCH_GPU_GOVERNOR "${gpu_value}"
+  load_config
+  cpu_governor="${cpu_value}"
+  gpu_governor="${gpu_value}"
+  apply_governors
+}
+
+set_cpu_governor() {
+  local value="$1"
+  load_config
+  set_governors "${value}" "${gpu_governor}"
+}
+
+set_gpu_governor() {
+  local value="$1"
+  load_config
+  set_governors "${cpu_governor}" "${value}"
 }
 
 set_fan_state() {
@@ -369,6 +427,30 @@ select_cpu_boost_menu() {
   "${0}" set cpu-boost "${value}"
 }
 
+select_cpu_governor_menu() {
+  local value
+  load_config
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "CPU governor" \
+    performance "Maximum clocks" "$([[ "${cpu_governor}" == "performance" ]] && echo on || echo off)" \
+    schedutil "Scheduler-driven" "$([[ "${cpu_governor}" == "schedutil" ]] && echo on || echo off)" \
+    ondemand "Load-driven" "$([[ "${cpu_governor}" == "ondemand" ]] && echo on || echo off)" \
+    powersave "Lower clocks" "$([[ "${cpu_governor}" == "powersave" ]] && echo on || echo off)" \
+    auto "Leave unchanged" "$([[ "${cpu_governor}" == "auto" ]] && echo on || echo off)")" || return 0
+  "${0}" set cpu-governor "${value}"
+}
+
+select_gpu_governor_menu() {
+  local value
+  load_config
+  value="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "GPU governor" \
+    performance "Maximum clocks" "$([[ "${gpu_governor}" == "performance" ]] && echo on || echo off)" \
+    simple_ondemand "Load-driven" "$([[ "${gpu_governor}" == "simple_ondemand" ]] && echo on || echo off)" \
+    powersave "Lower clocks" "$([[ "${gpu_governor}" == "powersave" ]] && echo on || echo off)" \
+    userspace "Manual devfreq" "$([[ "${gpu_governor}" == "userspace" ]] && echo on || echo off)" \
+    auto "Leave unchanged" "$([[ "${gpu_governor}" == "auto" ]] && echo on || echo off)")" || return 0
+  "${0}" set gpu-governor "${value}"
+}
+
 select_fan_profile_menu() {
   local value
   load_config
@@ -408,12 +490,16 @@ menu() {
     local choice
     choice="$("${kdialog_cmd}" --title "Thorch Hardware" --menu "Choose a hardware setting" \
       cpu "CPU boost: $([[ "${cpu_boost}" == "1" ]] && printf 'enabled' || printf 'disabled')" \
+      cpugov "CPU governor: ${cpu_governor}" \
+      gpugov "GPU governor: ${gpu_governor}" \
       fan "Fan profile: ${fan_profile}" \
       sensor "Fan sensor mode: ${fan_sensor_mode}" \
       rgb "RGB mode: ${rgb_mode}" \
       color "RGB static color: ${rgb_static_r},${rgb_static_g},${rgb_static_b}")" || break
     case "${choice}" in
       cpu) select_cpu_boost_menu ;;
+      cpugov) select_cpu_governor_menu ;;
+      gpugov) select_gpu_governor_menu ;;
       fan) select_fan_profile_menu ;;
       sensor)
         choice="$("${kdialog_cmd}" --title "Thorch Hardware" --radiolist "Fan sensor mode" \
@@ -447,6 +533,18 @@ case "${cmd}" in
       cpu-boost)
         [[ "$#" -eq 2 ]] || usage
         set_cpu_boost "$2"
+        ;;
+      cpu-governor)
+        [[ "$#" -eq 2 ]] || usage
+        set_cpu_governor "$2"
+        ;;
+      gpu-governor)
+        [[ "$#" -eq 2 ]] || usage
+        set_gpu_governor "$2"
+        ;;
+      governors)
+        [[ "$#" -eq 3 ]] || usage
+        set_governors "$2" "$3"
         ;;
       fan-profile)
         [[ "$#" -eq 2 ]] || usage

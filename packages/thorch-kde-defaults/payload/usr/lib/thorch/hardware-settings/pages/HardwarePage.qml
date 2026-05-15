@@ -19,6 +19,8 @@ Kirigami.ScrollablePage {
     property string pendingAction: ""
 
     property string cpuBoost: "1"
+    property string cpuGovernor: "performance"
+    property string gpuGovernor: "performance"
     property string fanProfile: "moderate"
     property string fanSensorMode: "max"
     property string rgbMode: "battery"
@@ -28,6 +30,8 @@ Kirigami.ScrollablePage {
     property int rgbStaticB: 255
 
     property string pendingCpuBoost: "1"
+    property string pendingCpuGovernor: "performance"
+    property string pendingGpuGovernor: "performance"
     property string pendingFanProfile: "moderate"
     property string pendingFanSensorMode: "max"
     property string pendingRgbMode: "battery"
@@ -40,6 +44,7 @@ Kirigami.ScrollablePage {
     readonly property string statusCommand: controlCommand + " status-json"
     readonly property string normalizedFanProfile: fanProfile === "auto" ? "moderate" : fanProfile
     readonly property bool cpuDirty: pendingCpuBoost !== cpuBoost
+    readonly property bool governorsDirty: pendingCpuGovernor !== cpuGovernor || pendingGpuGovernor !== gpuGovernor
     readonly property bool coolingDirty: pendingFanProfile !== normalizedFanProfile || pendingFanSensorMode !== fanSensorMode
     readonly property bool lightingDirty: pendingRgbMode !== rgbMode
                                          || pendingRgbBrightness !== rgbBrightness
@@ -65,6 +70,8 @@ Kirigami.ScrollablePage {
         const payload = JSON.parse(stdout)
 
         cpuBoost = payload.cpu_boost_enabled ? "1" : "0"
+        cpuGovernor = payload.cpu_governor
+        gpuGovernor = payload.gpu_governor
         fanProfile = payload.fan_profile
         fanSensorMode = payload.fan_sensor_mode
         rgbMode = payload.rgb_mode
@@ -75,6 +82,8 @@ Kirigami.ScrollablePage {
 
         if (!preservePendingOnRefresh) {
             pendingCpuBoost = cpuBoost
+            pendingCpuGovernor = cpuGovernor
+            pendingGpuGovernor = gpuGovernor
             pendingFanProfile = fanProfile === "auto" ? "moderate" : fanProfile
             pendingFanSensorMode = fanSensorMode
             pendingRgbMode = rgbMode
@@ -107,6 +116,11 @@ Kirigami.ScrollablePage {
                   qsTr("CPU boost"))
     }
 
+    function saveGovernors() {
+        runAction(controlCommand + " set governors " + pendingCpuGovernor + " " + pendingGpuGovernor,
+                  qsTr("governors"))
+    }
+
     function saveCooling() {
         runAction(controlCommand + " set fan-state " + pendingFanProfile + " " + pendingFanSensorMode,
                   qsTr("cooling"))
@@ -124,6 +138,11 @@ Kirigami.ScrollablePage {
 
     function revertCpu() {
         pendingCpuBoost = cpuBoost
+    }
+
+    function revertGovernors() {
+        pendingCpuGovernor = cpuGovernor
+        pendingGpuGovernor = gpuGovernor
     }
 
     function revertCooling() {
@@ -220,7 +239,7 @@ Kirigami.ScrollablePage {
 
         Components.SectionBlock {
             title: qsTr("Performance")
-            description: qsTr("Choose whether boost-capable CPU policies start enabled on this device.")
+            description: qsTr("Choose CPU boost and default CPU/GPU governors for game performance.")
 
             RowLayout {
                 Layout.fillWidth: true
@@ -251,6 +270,129 @@ Kirigami.ScrollablePage {
                     icon.name: "dialog-ok-apply"
                     text: qsTr("Save")
                     onClicked: page.saveCpu()
+                }
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                font.bold: true
+                text: qsTr("CPU governor")
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: width >= Kirigami.Units.gridUnit * 28 ? 3 : 2
+                columnSpacing: Kirigami.Units.smallSpacing
+                rowSpacing: Kirigami.Units.smallSpacing
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingCpuGovernor
+                    description: qsTr("Max clocks")
+                    optionValue: "performance"
+                    text: qsTr("Performance")
+                    onClicked: page.pendingCpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingCpuGovernor
+                    description: qsTr("Scheduler")
+                    optionValue: "schedutil"
+                    text: qsTr("Schedutil")
+                    onClicked: page.pendingCpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingCpuGovernor
+                    description: qsTr("Load-based")
+                    optionValue: "ondemand"
+                    text: qsTr("Ondemand")
+                    onClicked: page.pendingCpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingCpuGovernor
+                    description: qsTr("Low clocks")
+                    optionValue: "powersave"
+                    text: qsTr("Powersave")
+                    onClicked: page.pendingCpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingCpuGovernor
+                    description: qsTr("No write")
+                    optionValue: "auto"
+                    text: qsTr("Auto")
+                    onClicked: page.pendingCpuGovernor = optionValue
+                }
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                font.bold: true
+                text: qsTr("GPU governor")
+            }
+
+            GridLayout {
+                Layout.fillWidth: true
+                columns: width >= Kirigami.Units.gridUnit * 28 ? 3 : 2
+                columnSpacing: Kirigami.Units.smallSpacing
+                rowSpacing: Kirigami.Units.smallSpacing
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("Max clocks")
+                    optionValue: "performance"
+                    text: qsTr("Performance")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("Load-based")
+                    optionValue: "simple_ondemand"
+                    text: qsTr("Ondemand")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("Low clocks")
+                    optionValue: "powersave"
+                    text: qsTr("Powersave")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("Manual")
+                    optionValue: "userspace"
+                    text: qsTr("Userspace")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+
+                Components.ChoiceButton {
+                    currentValue: page.pendingGpuGovernor
+                    description: qsTr("No write")
+                    optionValue: "auto"
+                    text: qsTr("Auto")
+                    onClicked: page.pendingGpuGovernor = optionValue
+                }
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+
+                QQC2.Button {
+                    enabled: page.governorsDirty && !page.actionRunning
+                    text: qsTr("Revert")
+                    onClicked: page.revertGovernors()
+                }
+
+                QQC2.Button {
+                    enabled: page.governorsDirty && !page.actionRunning
+                    icon.name: "dialog-ok-apply"
+                    text: qsTr("Save")
+                    onClicked: page.saveGovernors()
                 }
             }
         }

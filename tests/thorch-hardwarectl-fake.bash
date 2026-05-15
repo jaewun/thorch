@@ -13,6 +13,8 @@ fail() {
 
 cat > "${tmp}/hardware.conf" <<'EOF'
 THORCH_CPU_BOOST=1
+THORCH_CPU_GOVERNOR=performance
+THORCH_GPU_GOVERNOR=performance
 THORCH_FAN_PROFILE=moderate
 THORCH_FAN_SENSOR_MODE=max
 THORCH_RGB_MODE=battery
@@ -25,7 +27,7 @@ EOF
 cat > "${tmp}/hw-defaults" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'hw-defaults %s\n' "$*" >> "${THORCH_TEST_LOG:?}"
+printf 'hw-defaults %s boost=%s cpu=%s gpu=%s\n' "$*" "${THORCH_CPU_BOOST:-unset}" "${THORCH_CPU_GOVERNOR:-unset}" "${THORCH_GPU_GOVERNOR:-unset}" >> "${THORCH_TEST_LOG:?}"
 EOF
 
 cat > "${tmp}/systemctl" <<'EOF'
@@ -62,7 +64,23 @@ run_ctl() {
 
 run_ctl set cpu-boost off
 grep -qx 'THORCH_CPU_BOOST=0' "${tmp}/hardware.conf" || fail "cpu boost was not updated"
-grep -qx 'hw-defaults apply' "${log}" || fail "cpu boost did not apply hardware defaults"
+grep -qx 'hw-defaults apply boost=0 cpu=performance gpu=performance' "${log}" || fail "cpu boost did not apply hardware defaults with saved config"
+
+: > "${log}"
+run_ctl set governors schedutil simple_ondemand
+grep -qx 'THORCH_CPU_GOVERNOR=schedutil' "${tmp}/hardware.conf" || fail "cpu governor was not updated"
+grep -qx 'THORCH_GPU_GOVERNOR=simple_ondemand' "${tmp}/hardware.conf" || fail "gpu governor was not updated"
+grep -qx 'hw-defaults apply boost=0 cpu=schedutil gpu=simple_ondemand' "${log}" || fail "governors did not apply hardware defaults with saved config"
+
+: > "${log}"
+run_ctl set cpu-governor powersave
+grep -qx 'THORCH_CPU_GOVERNOR=powersave' "${tmp}/hardware.conf" || fail "cpu governor was not updated by single-governor setter"
+grep -qx 'hw-defaults apply boost=0 cpu=powersave gpu=simple_ondemand' "${log}" || fail "cpu governor setter did not apply hardware defaults with saved config"
+
+: > "${log}"
+run_ctl set gpu-governor auto
+grep -qx 'THORCH_GPU_GOVERNOR=auto' "${tmp}/hardware.conf" || fail "gpu governor was not updated by single-governor setter"
+grep -qx 'hw-defaults apply boost=0 cpu=powersave gpu=auto' "${log}" || fail "gpu governor setter did not apply hardware defaults with saved config"
 
 : > "${log}"
 run_ctl set fan-profile aggressive
@@ -86,6 +104,8 @@ grep -qx 'rgb set 1 2 3' "${log}" || fail "rgb static apply did not run"
 
 status_output="$(run_ctl status)"
 grep -q '^cpu_boost: 0$' <<< "${status_output}" || fail "status did not report cpu boost"
+grep -q '^cpu_governor: powersave$' <<< "${status_output}" || fail "status did not report cpu governor"
+grep -q '^gpu_governor: auto$' <<< "${status_output}" || fail "status did not report gpu governor"
 grep -q '^fan_profile: quiet$' <<< "${status_output}" || fail "status did not report fan profile"
 grep -q '^rgb_mode: static$' <<< "${status_output}" || fail "status did not report rgb mode"
 
@@ -96,6 +116,8 @@ import sys
 
 data = json.loads(sys.argv[1])
 assert data["cpu_boost_enabled"] is False
+assert data["cpu_governor"] == "powersave"
+assert data["gpu_governor"] == "auto"
 assert data["fan_profile"] == "quiet"
 assert data["fan_sensor_mode"] == "average"
 assert data["rgb_mode"] == "static"

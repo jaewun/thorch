@@ -29,7 +29,7 @@ printf '%s\n' "$*" >> "${THORCH_TEST_LOG:?}"
 
 case "${1:-}" in
   status-json)
-    printf '%s\n' '{"cpu_boost":"1","cpu_boost_enabled":true,"fan_profile":"moderate","fan_profile_effective":"moderate","fan_sensor_mode":"max","rgb_mode":"battery","rgb_enabled":true,"rgb_brightness":255,"rgb_static_r":0,"rgb_static_g":128,"rgb_static_b":255,"rgb_static":[0,128,255],"rgb_static_hex":"#0080FF"}'
+    printf '%s\n' '{"cpu_boost":"1","cpu_boost_enabled":true,"cpu_governor":"performance","gpu_governor":"performance","fan_profile":"moderate","fan_profile_effective":"moderate","fan_sensor_mode":"max","rgb_mode":"battery","rgb_enabled":true,"rgb_brightness":255,"rgb_static_r":0,"rgb_static_g":128,"rgb_static_b":255,"rgb_static":[0,128,255],"rgb_static_hex":"#0080FF"}'
     ;;
   set)
     ;;
