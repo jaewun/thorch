@@ -13,7 +13,7 @@ install_root_packages() {
   local packages=()
   local pkg
 
-  for pkg in thorch-gamescope thorch-mangohud lsb-release vulkan-tools xorg-xwininfo; do
+  for pkg in thorch-gamescope thorch-mangohud thorch-gamepadcalibration lsb-release vulkan-tools xorg-xwininfo; do
     if pacman -Si "${pkg}" >/dev/null 2>&1 && ! pacman -Q "${pkg}" >/dev/null 2>&1; then
       packages+=("${pkg}")
     fi

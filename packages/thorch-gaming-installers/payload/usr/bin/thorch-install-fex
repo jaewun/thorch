@@ -34,41 +34,6 @@ start_fex_server() {
   sleep 1
 }
 
-install_steam_tool() {
-  local steam_root system_tool user_tool
-
-  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
-  system_tool="${THORCH_FEX_STEAM_TOOL:-/usr/share/steam/fex}"
-  [[ -f "${system_tool}/toolmanifest.vdf" && -f "${system_tool}/emulator.json" ]] || return 0
-
-  mkdir -p "${HOME}/.steam"
-  ln -sfnT "${steam_root}" "${HOME}/.steam/root"
-  ln -sfnT "${steam_root}" "${HOME}/.steam/steam"
-  mkdir -p "${steam_root}/compatibilitytools.d"
-  user_tool="${steam_root}/compatibilitytools.d/Thorch FEX"
-  ln -sfnT "${system_tool}" "${user_tool}"
-}
-
-steam_library_dirs() {
-  local steam_root vdf
-
-  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
-  printf '%s\n' "${steam_root}"
-  vdf="${steam_root}/steamapps/libraryfolders.vdf"
-  [[ -f "${vdf}" ]] || return 0
-
-  python - "${vdf}" <<'PY'
-import pathlib
-import re
-import sys
-
-text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="ignore")
-for match in re.finditer(r'"path"\s+"((?:\\.|[^"\\])*)"', text):
-    raw = match.group(1)
-    print(bytes(raw, "utf-8").decode("unicode_escape"))
-PY
-}
-
 resolve_fex_rootfs() {
   local rootfs_dir
 
@@ -105,79 +70,6 @@ ensure_canonical_fex_rootfs() {
   fi
 
   ln -sfnT "${rootfs_path}" "${target}"
-}
-
-seed_fex_steam_app_configs() {
-  local appid config_base library manifest rootfs_name rootfs_path steam_root steamapps
-
-  steam_root="${STEAM_STORAGE_ROOT:-${HOME}}/.local/share/Steam"
-  IFS=$'\t' read -r rootfs_path rootfs_name < <(resolve_fex_rootfs) || return 0
-
-  while IFS= read -r library; do
-    [[ -n "${library}" ]] || continue
-    steamapps="${library}/steamapps"
-    [[ -d "${steamapps}" ]] || continue
-
-    shopt -s nullglob
-    for manifest in "${steamapps}"/appmanifest_*.acf; do
-      appid="${manifest##*appmanifest_}"
-      appid="${appid%.acf}"
-      [[ "${appid}" =~ ^[0-9]+$ ]] || continue
-
-      config_base="${steam_root}/steamapps/compatdata/${appid}/fex-emu"
-      mkdir -p "${config_base}/RootFS" "${config_base}/Config" "${config_base}/Server"
-      rm -rf "${config_base}/RootFS/ArchLinux" "${config_base}/RootFS/ArchLinux.sqsh"
-      ln -sfnT "${rootfs_path}" "${config_base}/RootFS/${rootfs_name}"
-
-      python - "${config_base}" "${rootfs_name}" <<'PY'
-import json
-import pathlib
-import sys
-
-base = pathlib.Path(sys.argv[1])
-rootfs_name = sys.argv[2]
-template = pathlib.Path("/usr/config/fex-emu/Config.json")
-if not template.exists():
-    template = pathlib.Path("/usr/share/thorch/fex-emu/Config.json")
-host = pathlib.Path("/usr/share/steam/fex/usr/lib/aarch64-linux-gnu/fex-emu/HostThunks")
-guest = pathlib.Path("/usr/share/steam/fex/usr/share/fex-emu/GuestThunks")
-if not host.exists():
-    host = pathlib.Path("/usr/lib/fex-emu/HostThunks")
-if not guest.exists():
-    guest = pathlib.Path("/usr/share/fex-emu/GuestThunks")
-
-for path in (base / "Config.json", base / "Config" / "Config.json"):
-    try:
-        data = json.loads(template.read_text(encoding="utf-8")) if template.exists() else {}
-    except json.JSONDecodeError:
-        data = {}
-
-    config = data.setdefault("Config", {})
-    config.update({
-        "RootFS": rootfs_name,
-        "ServerSocketPath": "",
-        "ThunkHostLibs": str(host),
-        "ThunkGuestLibs": str(guest),
-        "TSOEnabled": "1",
-        "Multiblock": "1",
-        "X87ReducedPrecision": "1",
-        "SilentLog": "1",
-        "OutputLog": "server",
-    })
-    data["ThunksDB"] = {
-        "GL": 1,
-        "Vulkan": 1,
-        "drm": 1,
-        "asound": 1,
-        "WaylandClient": 1,
-        "fex_thunk_test": 0,
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
-    done
-    shopt -u nullglob
-  done < <(steam_library_dirs | awk '!seen[$0]++')
 }
 
 write_fex_config_defaults() {
@@ -403,9 +295,6 @@ fi
 stop_fex_server
 start_fex_server
 
-install_steam_tool
-seed_fex_steam_app_configs
-
 fex_test_output="$(FEX /bin/uname -m 2>&1)" || {
   echo "FEX RootFS is installed, but FEX could not start an x86_64 process." >&2
   printf '%s\n' "${fex_test_output}" >&2
@@ -420,4 +309,4 @@ if [[ "${fex_test_output}" != *x86_64* ]]; then
   exit 1
 fi
 
-echo "FEX is installed, Steam can see the Thorch FEX tool, and a user RootFS is available."
+echo "FEX is installed and a user RootFS is available."

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+heroic_base="${HEROIC_BASE:-${HOME}/.local/share/heroic-arm64}"
+heroic_bin=""
+
+for candidate in "${heroic_base}"/Heroic*/heroic "${heroic_base}"/heroic; do
+  [[ -x "${candidate}" ]] || continue
+  heroic_bin="${candidate}"
+  break
+done
+
+if [[ -z "${heroic_bin}" ]]; then
+  echo "Heroic is not installed. Run thorch-install-heroic-arm64 first." >&2
+  exit 1
+fi
+
+exec "${heroic_bin}" "$@"

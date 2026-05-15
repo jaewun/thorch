@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install Heroic
+Comment=Install the ARM64 Heroic Games Launcher
+Exec=thorch-install-heroic-arm64
+Icon=heroic
+Terminal=true
+Categories=Game;

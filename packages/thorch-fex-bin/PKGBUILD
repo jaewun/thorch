@@ -2,7 +2,7 @@
 
 pkgname=thorch-fex-bin
 pkgver=2605
-pkgrel=1
+pkgrel=2
 pkgdesc='ROCKNIX-imported FEX binary runtime for Thorch on AArch64'
 arch=(aarch64)
 url='https://github.com/FEX-Emu/FEX'
@@ -23,6 +23,7 @@ depends=(
   libxrender
   libxshmfence
   python
+  qt6-base
   squashfs-tools
   squashfuse
   vulkan-icd-loader
@@ -59,6 +60,7 @@ EOF
   for bin in \
     FEX \
     FEXBash \
+    FEXConfig \
     FEXGetConfig \
     FEXInterpreter \
     FEXOfflineCompiler \
@@ -142,251 +144,6 @@ PY
     cp -a "${fmt_lib}" "${pkgdir}/usr/lib/"
   done
   shopt -u nullglob
-
-  local steam_tool="${pkgdir}/usr/share/steam/fex"
-  install -d \
-    "${steam_tool}" \
-    "${steam_tool}/usr/bin" \
-    "${steam_tool}/usr/lib/aarch64-linux-gnu/fex-emu" \
-    "${steam_tool}/usr/share/fex-emu"
-
-  for steam_bin in FEX FEXServer FEXServerManager; do
-    if [[ -x "${pkgdir}/usr/bin/${steam_bin}" ]]; then
-      install -m 0755 "${pkgdir}/usr/bin/${steam_bin}" "${steam_tool}/usr/bin/${steam_bin}"
-    fi
-  done
-  if [[ -d "${pkgdir}/usr/lib/fex-emu" ]]; then
-    cp -a "${pkgdir}/usr/lib/fex-emu/." "${steam_tool}/usr/lib/aarch64-linux-gnu/fex-emu/"
-  fi
-  if [[ -d "${pkgdir}/usr/share/fex-emu" ]]; then
-    cp -a "${pkgdir}/usr/share/fex-emu/." "${steam_tool}/usr/share/fex-emu/"
-  fi
-
-  python - "${_runtime_dir}/usr/config/fex-emu/Config.json" "${steam_tool}/ConfigTemplate.json" <<'PY'
-import json
-import pathlib
-import sys
-
-src = pathlib.Path(sys.argv[1])
-dst = pathlib.Path(sys.argv[2])
-data = json.loads(src.read_text(encoding="utf-8")) if src.exists() else {}
-config = data.setdefault("Config", {})
-config.update({
-    "RootFS": "@FEX_ROOTFS_PATH@/",
-    "ThunkHostLibs": "@FEX_COMPAT_TOOL@/usr/lib/aarch64-linux-gnu/fex-emu/HostThunks",
-    "ThunkGuestLibs": "@FEX_COMPAT_TOOL@/usr/share/fex-emu/GuestThunks",
-    "TSOEnabled": "1",
-    "Multiblock": "1",
-    "X87ReducedPrecision": "1",
-    "SilentLog": "1",
-    "OutputLog": "server",
-})
-thunks = data.setdefault("ThunksDB", {})
-for name in ("GL", "Vulkan", "drm", "asound", "WaylandClient"):
-    thunks[name] = 1
-thunks["fex_thunk_test"] = 0
-dst.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
-
-  local steam_server_argv="./usr/bin/FEXServer"
-  if [[ -x "${steam_tool}/usr/bin/FEXServerManager" ]]; then
-    steam_server_argv="./usr/bin/FEXServerManager"
-  fi
-  cat > "${steam_tool}/emulator.json" <<EOF
-{
-  "emulator_v0": {
-    "argv": "./usr/bin/FEX",
-    "environment": { "FEX_PORTABLE": "1" },
-    "container_argv": "./usr/bin/FEX",
-    "container_environment": { "FEX_ROOTFS": "" },
-    "main_argv": "./FEXCompatTool",
-    "server_argv": "${steam_server_argv}",
-    "emulated_architectures": ["x86_64-linux-gnu", "i386-linux-gnu"],
-    "required_architectures": ["aarch64-linux-gnu"],
-    "required_libraries": ["libc.so.6", "libstdc++.so.6"]
-  }
-}
-EOF
-
-  cat > "${steam_tool}/toolmanifest.vdf" <<'EOF'
-"manifest"
-{
-  "commandline" "/fex-compat-tool %verb% --"
-  "filter_exclusive_priority" "2"
-  "version" "2"
-  "use_tool_subprocess_reaper" "1"
-  "compatmanager_layer_name" "fex"
-}
-EOF
-
-  cat > "${steam_tool}/VERSIONS.txt" <<EOF
-FEX ${pkgver}
-ROCKNIX runtime import
-EOF
-
-  cat > "${steam_tool}/FEXCompatTool" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-tool_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-config_base="${STEAM_COMPAT_DATA_PATH:-}"
-
-if [[ -n "${config_base}" ]]; then
-  config_base="${config_base}/fex-emu"
-  mkdir -p "${config_base}/Config" "${config_base}/RootFS" "${config_base}/Server"
-  python - "${tool_dir}" "${config_base}" <<'PY'
-import json
-import os
-import pathlib
-import shutil
-import sys
-
-tool_dir = pathlib.Path(sys.argv[1])
-base = pathlib.Path(sys.argv[2])
-template = tool_dir / "ConfigTemplate.json"
-
-def load_json(path, fallback):
-    try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else fallback
-    except json.JSONDecodeError:
-        return fallback
-
-def env_flag(name):
-    try:
-        return int(os.environ.get(name, "0"), 0) != 0
-    except ValueError:
-        return False
-
-def replace_tokens(value, replacements):
-    if isinstance(value, str):
-        for old, new in replacements.items():
-            value = value.replace(old, new)
-        return value
-    if isinstance(value, list):
-        return [replace_tokens(item, replacements) for item in value]
-    if isinstance(value, dict):
-        return {key: replace_tokens(item, replacements) for key, item in value.items()}
-    return value
-
-def first_rootfs():
-    candidates = []
-    env_dir = os.environ.get("FEX_ROOTFS_DIR")
-    if env_dir:
-        candidates.append(pathlib.Path(env_dir))
-    home = pathlib.Path(os.environ.get("HOME", ""))
-    if str(home):
-        candidates.extend([
-            home / ".fex-emu" / "RootFS",
-            home / ".local" / "share" / "fex-emu" / "RootFS",
-        ])
-    candidates.append(base / "RootFS")
-
-    for root in candidates:
-        if not root:
-            continue
-        for name in ("ArchLinux", "ArchLinux.sqsh"):
-            path = root / name
-            if path.exists():
-                return path, name
-    return None, None
-
-rootfs_path, rootfs_name = first_rootfs()
-mount_base = os.environ.get("XDG_RUNTIME_DIR")
-if mount_base:
-    default_rootfs = f"{mount_base}/fexrootfs/"
-else:
-    default_rootfs = f"/run/user/{os.geteuid()}/fexrootfs/"
-
-data = load_json(template, {"Config": {}, "ThunksDB": {}})
-data = replace_tokens(data, {
-    "@FEX_COMPAT_TOOL@": str(tool_dir),
-    "@FEX_ROOTFS_PATH@": default_rootfs.rstrip("/"),
-})
-
-config = data.setdefault("Config", {})
-config.update({
-    "ServerSocketPath": "",
-    "ThunkHostLibs": str(tool_dir / "usr/lib/aarch64-linux-gnu/fex-emu/HostThunks"),
-    "ThunkGuestLibs": str(tool_dir / "usr/share/fex-emu/GuestThunks"),
-})
-if rootfs_path and rootfs_name:
-    target = base / "RootFS" / rootfs_name
-    try:
-        same_rootfs = target.resolve() == rootfs_path.resolve()
-    except OSError:
-        same_rootfs = False
-    if not same_rootfs:
-        if target.is_dir() and not target.is_symlink():
-            shutil.rmtree(target)
-        elif target.exists() or target.is_symlink():
-            target.unlink()
-        target.symlink_to(rootfs_path)
-    config["RootFS"] = rootfs_name
-
-thunks = data.setdefault("ThunksDB", {})
-for name in ("GL", "Vulkan", "drm", "asound", "WaylandClient"):
-    thunks[name] = int(thunks.get(name, 1))
-thunks["fex_thunk_test"] = 0
-
-config_path = base / "Config" / "Config.json"
-config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-app_config = {"Config": {}, "ThunksDB": {}}
-has_app_config = False
-if "STEAM_FEX_TSOENABLED" in os.environ:
-    app_config["Config"]["TSOEnabled"] = "1" if env_flag("STEAM_FEX_TSOENABLED") else "0"
-    has_app_config = True
-if "STEAM_FEX_MULTIBLOCK" in os.environ:
-    app_config["Config"]["Multiblock"] = "1" if env_flag("STEAM_FEX_MULTIBLOCK") else "0"
-    has_app_config = True
-if "STEAM_FEX_LOG" in os.environ:
-    enabled = env_flag("STEAM_FEX_LOG")
-    app_config["Config"]["SilentLog"] = "0" if enabled else "1"
-    if enabled:
-        app_config["Config"]["OutputLog"] = "server"
-    has_app_config = True
-
-compat = os.environ.get("STEAM_COMPAT_FEX_CONFIG", "")
-for token, key in (
-    ("TSOEnabled:1", ("Config", "TSOEnabled")),
-    ("Multiblock:1", ("Config", "Multiblock")),
-    ("ThunksDB_GL:1", ("ThunksDB", "GL")),
-    ("ThunksDB_Vulkan:1", ("ThunksDB", "Vulkan")),
-):
-    if token in compat:
-        section, name = key
-        app_config[section][name] = "1" if section == "Config" else 1
-        has_app_config = True
-
-app_config_path = base / "app_config.json"
-if has_app_config:
-    app_config = {key: value for key, value in app_config.items() if value}
-    app_config_path.write_text(json.dumps(app_config, indent=2) + "\n", encoding="utf-8")
-elif app_config_path.exists():
-    app_config_path.unlink()
-PY
-  export FEX_APP_CONFIG_LOCATION="${config_base}/Config/"
-  export FEX_APP_DATA_LOCATION="${config_base}/"
-  if [[ -f "${config_base}/app_config.json" ]]; then
-    export FEX_APP_CONFIG="${config_base}/app_config.json"
-  fi
-fi
-
-export FEX_PORTABLE=1
-
-case "${1:-}" in
-  run|waitforexitandrun|waitforexitandrun_internal)
-    shift
-    ;;
-esac
-if [[ "${1:-}" == "--" ]]; then
-  shift
-fi
-
-exec "${tool_dir}/usr/bin/FEX" "$@"
-EOF
-  chmod 0755 "${steam_tool}/FEXCompatTool"
-  ln -sfn FEXCompatTool "${steam_tool}/fex-compat-tool"
 
   cp -a "${startdir}/payload/." "${pkgdir}/"
 

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v FEXConfig >/dev/null 2>&1; then
+  echo "FEXConfig is not installed in this FEX runtime." >&2
+  exit 1
+fi
+
+config_src="/usr/config/fex-emu"
+if [[ ! -d "${config_src}" ]]; then
+  config_src="/usr/share/thorch/fex-emu"
+fi
+
+config_dst="${HOME}/.config/fex-emu"
+if [[ ! -d "${config_dst}" && -d "${config_src}" ]]; then
+  mkdir -p "$(dirname "${config_dst}")"
+  cp -a "${config_src}" "${config_dst}"
+fi
+
+exec FEXConfig "$@"

@@ -37,6 +37,7 @@ EOF
 cat > "${steam_root}/steamrtarm64/steam" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${THORCH_FAKE_STEAM_LOG:?}"
+printf '%s\n' "${LD_LIBRARY_PATH:-}" >> "${THORCH_FAKE_STEAM_ENV_LOG:?}"
 exit 0
 EOF
 chmod 755 "${steam_root}/steamrtarm64/steam"
@@ -47,6 +48,7 @@ THORCH_STEAM_SYSTEM_DIR="${system_steam}" \
 THORCH_STEAM_MODE=deck \
 THORCH_STEAM_USE_GAMESCOPE=0 \
 THORCH_FAKE_STEAM_LOG="${log}" \
+THORCH_FAKE_STEAM_ENV_LOG="${tmp}/steam-env.log" \
   "${script}"
 
 cmp -s "${system_steam}/toolmanifest.vdf" "${proton_dir}/toolmanifest.vdf" ||
@@ -64,5 +66,10 @@ mapfile -t calls < "${log}"
 for arg in -noverifyfiles -nobootstrapupdate -skipinitialbootstrap -norepairfiles; do
   [[ "${calls[1]}" == *"${arg}"* ]] || fail "final launch is missing ${arg}: ${calls[1]}"
 done
+
+while IFS= read -r ld_library_path; do
+  [[ "${ld_library_path}" == "${steam_root}/lib/aarch64-linux-gnu" ]] ||
+    fail "unexpected LD_LIBRARY_PATH: ${ld_library_path}"
+done < "${tmp}/steam-env.log"
 
 printf 'thorch Steam ARM64 launch prep tests passed\n'

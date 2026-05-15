@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+heroic_base="${HEROIC_BASE:-${HOME}/.local/share/heroic-arm64}"
+heroic_tar_url="${HEROIC_TAR_URL:-https://codeberg.org/trescenzi/rocknix-ports/raw/branch/main/heroic/Heroic-2.21.0-linux-arm64.tar.xz}"
+heroic_bin=""
+
+resolve_heroic_bin() {
+  local candidate
+  heroic_bin=""
+  for candidate in "${heroic_base}"/Heroic*/heroic "${heroic_base}"/heroic; do
+    [[ -x "${candidate}" ]] || continue
+    heroic_bin="${candidate}"
+    return 0
+  done
+  return 1
+}
+
+if ! resolve_heroic_bin; then
+  lock_dir="${TMPDIR:-/tmp}/thorch-heroic-arm64.lock"
+  if ! mkdir "${lock_dir}" 2>/dev/null; then
+    echo "Heroic install is already running. Try again in a few seconds." >&2
+    exit 1
+  fi
+  trap 'rmdir "${lock_dir}" 2>/dev/null || true' EXIT
+
+  tmp_archive="$(mktemp --suffix=.tar.xz)"
+  trap 'rm -f "${tmp_archive}"; rmdir "${lock_dir}" 2>/dev/null || true' EXIT
+  mkdir -p "${heroic_base}"
+  wget -c -t 5 -O "${tmp_archive}" "${heroic_tar_url}"
+  rm -rf "${heroic_base}/Heroic-Games-Launcher"
+  tar -xJf "${tmp_archive}" -C "${heroic_base}"
+  resolve_heroic_bin || {
+    echo "Heroic archive did not contain an executable heroic binary." >&2
+    exit 1
+  }
+  chmod +x "${heroic_bin}" || true
+fi
+
+echo "Heroic is installed. Launch it from the app menu or run thorch-start-heroic."

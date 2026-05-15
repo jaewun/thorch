@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Steam
+Comment=Launch Steam
+Exec=env THORCH_STEAM_USE_GAMESCOPE=0 /usr/bin/thorch-start-steam-arm64
+Icon=steam
+Terminal=false
+Categories=Game;

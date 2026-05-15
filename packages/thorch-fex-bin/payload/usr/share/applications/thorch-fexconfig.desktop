@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=FEXConfig
+Comment=Configure FEX
+Exec=thorch-start-fexconfig
+Icon=preferences-system
+Terminal=false
+Categories=Settings;

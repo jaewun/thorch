@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Heroic Games Launcher
+Comment=Launch Heroic
+Exec=thorch-start-heroic
+Icon=heroic
+Terminal=false
+Categories=Game;

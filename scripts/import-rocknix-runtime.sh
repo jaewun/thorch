@@ -100,6 +100,7 @@ install -d "${dest_abs}"
 for bin in \
   FEX \
   FEXBash \
+  FEXConfig \
   FEXGetConfig \
   FEXInterpreter \
   FEXOfflineCompiler \

@@ -318,6 +318,7 @@ run_mode() {
       THORCH_STEAM_GAMESCOPE_REFRESH="${refresh}" \
       THORCH_STEAM_GAMESCOPE_BACKEND="${backend}" \
       THORCH_STEAM_BRANCH="${steam_branch}" \
+      THORCH_STEAM_MANGOHUD="${THORCH_STEAM_MANGOHUD:-auto}" \
       THORCH_STEAM_SKIP_BOOTSTRAP="${THORCH_STEAM_SKIP_BOOTSTRAP:-1}" \
       THORCH_STEAM_SKIP_ICON=1 \
       "${launcher}"; then
@@ -372,6 +373,7 @@ start_mode() {
     THORCH_STEAMOS_GAMESCOPE_BACKEND="${backend}" \
     THORCH_STEAMOS_STEAM_MODE="${steam_mode}" \
     THORCH_STEAMOS_STEAM_BRANCH="${steam_branch}" \
+    THORCH_STEAM_MANGOHUD="${THORCH_STEAM_MANGOHUD:-auto}" \
     THORCH_STEAM_SKIP_BOOTSTRAP="${THORCH_STEAM_SKIP_BOOTSTRAP:-1}" \
     THORCH_STEAM_SDL_VIDEODRIVER="${THORCH_STEAM_SDL_VIDEODRIVER:-${SDL_VIDEODRIVER:-x11}}" \
     /usr/bin/thorch-steamos-mode run >>"${log_file}" 2>&1 < /dev/null &

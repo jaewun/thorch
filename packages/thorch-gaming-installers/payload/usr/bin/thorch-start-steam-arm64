@@ -16,9 +16,6 @@ steam_system_dir="${THORCH_STEAM_SYSTEM_DIR:-/usr/share/steam}"
 proton_arm_name="${THORCH_STEAM_PROTON_NAME:-Proton 11.0 (ARM64)}"
 preflight="${THORCH_STEAM_PREFLIGHT:-1}"
 
-runtime_lib_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/files/lib/aarch64-linux-gnu' -type d -print -quit 2>/dev/null || true)"
-runtime_bin_dir="$(find "${steam_root}/steam-runtime-steamrt-arm64" -path '*/pressure-vessel/bin' -type d -print -quit 2>/dev/null || true)"
-
 configure_mangohud() {
   local config_dir config_file system_config user_config
 
@@ -57,13 +54,16 @@ configure_mangohud() {
 
   [[ -f "${config_file}" && -w "${config_file}" ]] || return 0
   export MANGOHUD_CONFIGFILE="${config_file}"
-  mangoapp_args=(--mangoapp)
 
   case "${mangohud,,}" in
     1|true|yes|on|enabled)
+      mangoapp_args=(--mangoapp)
       if grep -q '^no_display' "${config_file}"; then
         sed -i 's/^no_display/# no_display/' "${config_file}"
       fi
+      ;;
+    auto|"")
+      mangoapp_args=(--mangoapp)
       ;;
     0|false|no|off|disabled)
       if grep -q '^# *no_display' "${config_file}"; then
@@ -108,8 +108,8 @@ elif command -v thorch-repair-steam-arm64 >/dev/null 2>&1; then
 fi
 
 configure_mangohud
-export LD_LIBRARY_PATH="${steam_root}/steamrtarm64:${steam_root}/steamrtarm64/video:${steam_root}/lib/aarch64-linux-gnu${runtime_lib_dir:+:${runtime_lib_dir}}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-export PATH="${support_bin_dir}${runtime_bin_dir:+:${runtime_bin_dir}}:${PATH}"
+export LD_LIBRARY_PATH="${steam_root}/lib/aarch64-linux-gnu"
+export PATH="${support_bin_dir}:${PATH}"
 export STEAM_BASE_FOLDER="${steam_root}"
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
